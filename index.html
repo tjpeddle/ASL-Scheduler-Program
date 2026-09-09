@@ -364,7 +364,12 @@ var S = {
   events: [],
   contacts: [],
   notes: [],
-  meta: { yearStart: 2026, trackerA1: "Date", publishedAt: null, publishedSnap: {}, includeNotesPublic: false, includeStatusPublic: true }
+  meta: {
+    yearStart: 2026, trackerA1: "Date",
+    sharedAt: null, sharedSnap: {},            /* what CSDHH has already been told about */
+    publishedAt: null, publishedSnap: {},      /* legacy, migrated on load */
+    includeNotesPublic: false, includeStatusPublic: true
+  }
 };
 var UI = { tab: "start", month: null, pending: null, drawerId: null, msg: null };
 
@@ -495,6 +500,12 @@ function load() {
       S.contacts = o.contacts || [];
       S.notes = o.notes || [];
       S.meta = Object.assign(S.meta, o.meta || {});
+      /* older saves tracked this as "published"; it means the same thing */
+      if (!S.meta.sharedAt && S.meta.publishedAt) {
+        S.meta.sharedAt = S.meta.publishedAt;
+        S.meta.sharedSnap = S.meta.publishedSnap || {};
+      }
+      if (!S.meta.sharedSnap) S.meta.sharedSnap = {};
     }
   } catch (err) { /* ignore */ }
 }
@@ -746,10 +757,10 @@ function commitPending() {
   return n;
 }
 
-/* ---------------- publish diff ---------------- */
+/* ---------------- what CSDHH has not been told yet ---------------- */
 function publishDiff(ys) {
   var evs = eventsInYear(ys);
-  var snap = S.meta.publishedSnap || {};
+  var snap = S.meta.sharedSnap || {};
   var added = [], changed = [], removed = [];
   var live = {};
   evs.forEach(function (e) {
@@ -759,6 +770,16 @@ function publishDiff(ys) {
   });
   Object.keys(snap).forEach(function (id) { if (!live[id]) removed.push(id); });
   return { added: added, changed: changed, removed: removed, total: added.length + changed.length + removed.length };
+}
+/* record that everything currently on the calendar has now been passed to CSDHH */
+function markShared(ys) {
+  var ns = {};
+  eventsInYear(ys).forEach(function (e) { ns[e.id] = evHash(e); });
+  S.meta.sharedSnap = ns;
+  S.meta.sharedAt = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  S.meta.publishedAt = S.meta.sharedAt;
+  S.meta.publishedSnap = ns;
+  save();
 }
 
 /* ============================================================
@@ -787,7 +808,7 @@ function nextStep() {
   }
   var d = publishDiff(ys);
   if (d.total) {
-    return { text: "<b>" + d.total + "</b> change" + (d.total === 1 ? "" : "s") + " since your last publish to CSDHH" + (S.meta.publishedAt ? " on " + esc(S.meta.publishedAt) : "") + ". Publish an updated calendar so they see the new events.", btn: "Publish update", go: "share" };
+    return { text: "<b>" + d.total + "</b> event" + (d.total === 1 ? "" : "s") + " on your calendar that CSDHH has not been sent yet" + (S.meta.sharedAt ? " (last sent " + esc(S.meta.sharedAt) + ")" : "") + ".", btn: "Send to CSDHH", go: "share" };
   }
   var inprog = upcoming.filter(function (e) { return e.status === "In progress"; });
   if (inprog.length) {
@@ -878,8 +899,8 @@ function renderStart(p) {
     { n: "Step 2", t: "Import", d: "Drop the export into the Import tab. Duplicates are skipped, recurring events are expanded.", done: evs.length > 0 },
     { n: "Step 3", t: "Request to CSDHH", d: "Email interpreting@csdhh.org. Mark the event In progress, then Request Complete.", done: byStatus["Request not made"] === 0 && upcoming.length > 0 },
     { n: "Step 4", t: "Fill in details", d: "Interpreter assigned, campus access / hang tag, notify student, case noted.", done: upcoming.length > 0 && byStatus["Request Complete"] > 0 },
-    { n: "Step 5", t: "Publish for CSDHH", d: "Generate the view-only calendar page and post it at the same link. They see what is new.", done: diff.total === 0 && !!S.meta.publishedAt },
-    { n: "Step 6", t: "Export the tracker", d: "Write everything back into the Interpreter Requests workbook for your records.", done: false }
+    { n: "Step 5", t: "Send to CSDHH", d: "Export the new events into your shared Outlook calendar, and email them what changed.", done: diff.total === 0 && !!S.meta.sharedAt },
+    { n: "Step 6", t: "Update your tracker", d: "Write everything back into the Interpreter Requests workbook for your records.", done: false }
   ];
   var firstUndone = steps.findIndex(function (s) { return !s.done; });
   /* a later step never reads as finished while an earlier one is still open */
@@ -932,11 +953,11 @@ function renderStart(p) {
   item(!missing, missing ? "<b>" + missing + "</b> confirmed event(s) have no interpreter named" : "All confirmed events name an interpreter", "Open list", function () { UI.evFilter = "Request Complete"; go("events"); });
   var noAccess = upcoming.filter(function (e) { return e.status === "Request Complete" && !e.campus; }).length;
   item(!noAccess, noAccess ? "<b>" + noAccess + "</b> confirmed event(s) have no campus access / hang tag confirmed" : "Campus access is set on all confirmed events", "Open list", function () { UI.evFilter = "Request Complete"; go("events"); });
-  item(diff.total === 0 && !!S.meta.publishedAt,
-    S.meta.publishedAt
-      ? (diff.total ? "<b>" + diff.total + "</b> change(s) not yet published to CSDHH (last published " + esc(S.meta.publishedAt) + ")" : "CSDHH calendar is current as of " + esc(S.meta.publishedAt))
-      : "You have not published a calendar for CSDHH yet",
-    "Publish", function () { go("share"); });
+  item(diff.total === 0 && !!S.meta.sharedAt,
+    S.meta.sharedAt
+      ? (diff.total ? "<b>" + diff.total + "</b> event(s) not yet sent to CSDHH (last sent " + esc(S.meta.sharedAt) + ")" : "CSDHH has everything as of " + esc(S.meta.sharedAt))
+      : "You have not sent anything to CSDHH from here yet",
+    "Send", function () { go("share"); });
   ck.appendChild(list);
   p.appendChild(ck);
 }
@@ -1185,7 +1206,7 @@ function monthTable(y, m, interactive) {
   return t;
 }
 function eventChip(e, interactive) {
-  var isNew = S.meta.publishedSnap && !S.meta.publishedSnap[e.id] && S.meta.publishedAt;
+  var isNew = S.meta.sharedAt && S.meta.sharedSnap && !S.meta.sharedSnap[e.id];
   var b = el("button", { class: "ev " + SCLASS[e.status] + (isNew ? " isnew" : ""), type: "button" });
   b.appendChild(el("span", { class: "tt", text: e.title }));
   var meta = [timeRange(e), e.location].filter(Boolean).join(" · ");
@@ -1515,71 +1536,90 @@ function renderShare(p) {
   var diff = publishDiff(ys);
 
   p.appendChild(helpBox("What to do on this tab", [
-    "<p>Three separate things live here. They do different jobs.</p>",
+    "<p><b>How CSDHH sees the schedule.</b> Set this up once, then it is two clicks a week.</p>",
+    "<p><b>One-time setup:</b> in Outlook, make a calendar called <i>ASL Interpreting</i> and share it with the CSDHH email addresses. That is the calendar they will watch.</p>",
+    "<p><b>Each time new requests come in:</b></p>",
     "<ol>",
-    "<li><b>Publish for CSDHH</b> — downloads a single view-only calendar page. Upload that file to your GitHub Pages repo under the same filename every time, and CSDHH keeps one bookmark that is always current. The page opens on a <i>What's new</i> list so they can see at a glance what was added since last time. It contains no request statuses or internal notes unless you tick those boxes, and it never contains this program.</li>",
-    "<li><b>Export the tracker</b> — writes an .xlsx in the same shape as your <i>Interpreter Requests</i> workbook: Current and Upcoming, On-Site Contacts, Previous Requests, Notes. Past events move to Previous Requests automatically.</li>",
-    "<li><b>Backup file</b> — everything in one .json. Use it to move to another computer or to keep a safety copy. Your data lives in this browser only, so a backup now and then is worth it.</li>",
-    "</ol>"
-  ].join("")));
+    "<li>Click <b>Export new events for Outlook</b>. It saves a calendar file containing only what CSDHH has not been sent yet, so importing it can never create duplicates.</li>",
+    "<li>Drag that file onto your <i>ASL Interpreting</i> calendar in Outlook. The events appear on their end automatically.</li>",
+    "<li>Click <b>Copy update email</b> and paste it into a message to them, so somebody actually notices.</li>",
+    "</ol>",
+    "<p>Recurring meetings go across as a single repeating entry rather than thirty separate ones.</p>",
+    "<p><b>One caution.</b> This calendar shows when and where interpreting is scheduled, which is accommodation information. Keep it inside HPU systems — the shared Outlook calendar, OneDrive shared with named people, or an email straight to CSDHH. Do not post it to a public web address where anyone could find it.</p>"
+  ].join(""), !S.meta.sharedAt));
 
-  /* publish */
+  /* 1 — Outlook hand-off */
   var c1 = el("div", { class: "card" });
-  c1.appendChild(el("h2", { text: "1. Publish the calendar for CSDHH" }));
-  c1.appendChild(el("div", { class: "lede", text: S.meta.publishedAt ? "Last published " + S.meta.publishedAt : "Not published yet." }));
+  c1.appendChild(el("h2", { text: "1. Send new events to CSDHH" }));
+  c1.appendChild(el("div", { class: "lede", text: S.meta.sharedAt ? "Last sent " + S.meta.sharedAt : "Nothing sent from here yet." }));
 
   if (diff.total) {
     var d = el("div", { class: "diff" });
-    d.appendChild(el("div", { class: "dh", text: S.meta.publishedAt
-      ? diff.total + " change" + (diff.total === 1 ? "" : "s") + " since your last publish"
-      : diff.total + " event" + (diff.total === 1 ? "" : "s") + " ready for the first publish" }));
+    d.appendChild(el("div", { class: "dh", text: S.meta.sharedAt
+      ? diff.total + " event" + (diff.total === 1 ? "" : "s") + " CSDHH has not been sent"
+      : diff.total + " event" + (diff.total === 1 ? "" : "s") + " ready for the first send" }));
     var ul = el("ul");
     diff.added.slice(0, 12).forEach(function (e) { ul.appendChild(el("li", { html: "<b>New:</b> " + esc(e.title) + " — " + esc(longDate(e.date)) + (e.start ? ", " + esc(timeRange(e)) : "") })); });
     diff.changed.slice(0, 12).forEach(function (e) { ul.appendChild(el("li", { html: "<b>Changed:</b> " + esc(e.title) + " — " + esc(longDate(e.date)) })); });
-    if (diff.removed.length) ul.appendChild(el("li", { html: "<b>Removed:</b> " + diff.removed.length + " event(s)" }));
+    if (diff.removed.length) ul.appendChild(el("li", { html: "<b>Removed:</b> " + diff.removed.length + " event(s) — delete these from the Outlook calendar by hand" }));
     if (diff.added.length + diff.changed.length > 24) ul.appendChild(el("li", { text: "…and more" }));
     d.appendChild(ul);
     c1.appendChild(d);
   } else {
-    c1.appendChild(el("div", { class: "msg ok", text: S.meta.publishedAt ? "No changes since your last publish. CSDHH already has the current calendar." : "Nothing published yet — generate the first calendar below." }));
+    c1.appendChild(el("div", { class: "msg ok", text: S.meta.sharedAt ? "Nothing new. CSDHH has every event currently on your calendar." : "No events yet — import some on the Import tab first." }));
   }
 
-  var incS = el("input", { type: "checkbox" }); incS.checked = !!S.meta.includeStatusPublic;
-  incS.addEventListener("change", function () { S.meta.includeStatusPublic = incS.checked; save(); });
-  var incN = el("input", { type: "checkbox" }); incN.checked = !!S.meta.includeNotesPublic;
-  incN.addEventListener("change", function () { S.meta.includeNotesPublic = incN.checked; save(); });
-  c1.appendChild(el("div", { style: "margin:12px 0" }, [
-    el("label", { class: "chk" }, [incS, document.createTextNode("Include request status on the shared page")]),
-    el("label", { class: "chk" }, [incN, document.createTextNode("Include your notes on the shared page (usually leave this off)")])
+  c1.appendChild(el("div", { class: "btnrow", style: "margin-top:14px" }, [
+    el("button", { class: "btn pri", text: "Export new events for Outlook", onclick: function () { exportICS(true); } }),
+    el("button", { class: "btn", text: "Copy update email", onclick: copyUpdateEmail })
   ]));
+  c1.appendChild(el("div", { class: "note", html: "Drag the downloaded <code>.ics</code> file onto your shared <b>ASL Interpreting</b> calendar in Outlook. Both buttons work off the same list above." }));
 
-  c1.appendChild(el("div", { class: "btnrow" }, [
-    el("button", { class: "btn pri", text: "Generate calendar page", onclick: function () { doPublish(true); } }),
-    el("button", { class: "btn", text: "Preview without marking published", onclick: function () { doPublish(false); } })
+  var adv = el("details", { class: "help", style: "margin-top:14px" });
+  adv.appendChild(el("summary", { text: "Starting over, or setting up for the first time" }));
+  var advb = el("div", { class: "body" });
+  advb.appendChild(el("p", { html: "Use this the very first time, or if you had to rebuild the Outlook calendar from scratch. It exports <b>every</b> event for " + ys + "–" + (ys + 1) + ". Only do it into an empty calendar, or you will get duplicates." }));
+  advb.appendChild(el("div", { class: "btnrow" }, [
+    el("button", { class: "btn", text: "Export the whole year", onclick: function () { exportICS(false); } }),
+    el("button", { class: "btn sm", text: "Mark everything as already sent", onclick: function () {
+      markShared(ys); msg("ok", "Marked as sent. From now on the export only includes what changes after this point."); render();
+    } })
   ]));
-  c1.appendChild(el("div", { class: "note", html: "Save it as <code>interpreter-calendar.html</code> and upload to the same path in your GitHub Pages repo each time. The link CSDHH bookmarks never changes." }));
+  adv.appendChild(advb);
+  c1.appendChild(adv);
   p.appendChild(c1);
 
-  /* tracker */
+  /* 2 — print / PDF */
   var c2 = el("div", { class: "card" });
-  c2.appendChild(el("h2", { text: "2. Export the Interpreter Requests tracker" }));
-  c2.appendChild(el("div", { class: "lede", text: "Same four sheets and column order as your existing workbook." }));
+  c2.appendChild(el("h2", { text: "2. Print, or save the calendar as a PDF" }));
+  c2.appendChild(el("div", { class: "lede", text: "For emailing a copy, posting in the office, or your own records." }));
+  c2.appendChild(el("div", { class: "btnrow" }, [
+    el("button", { class: "btn pri", text: "Save the whole year as PDF", onclick: function () { go("cal"); setTimeout(function () { printCal(true); }, 60); } }),
+    el("button", { class: "btn", text: "Save this month as PDF", onclick: function () { go("cal"); setTimeout(function () { printCal(false); }, 60); } })
+  ]));
+  c2.appendChild(el("div", { class: "note", html: "When the print box opens, change the printer to <b>Save as PDF</b> (Microsoft Print to PDF on Windows). A PDF opens for anyone, on any device, with nothing to install — it is the safest thing to email." }));
+  p.appendChild(c2);
+
+  /* 3 — tracker */
+  var c3 = el("div", { class: "card" });
+  c3.appendChild(el("h2", { text: "3. Update the Interpreter Requests tracker" }));
+  c3.appendChild(el("div", { class: "lede", text: "Same four sheets and column order as your existing workbook." }));
   var counts = trackerCounts();
-  c2.appendChild(el("div", { class: "stats", style: "margin-bottom:12px" }, [
+  c3.appendChild(el("div", { class: "stats", style: "margin-bottom:12px" }, [
     el("div", { class: "stat" }, [el("div", { class: "v", text: String(counts.current) }), el("div", { class: "k", text: "Current & upcoming" })]),
     el("div", { class: "stat" }, [el("div", { class: "v", text: String(counts.previous) }), el("div", { class: "k", text: "Previous requests" })]),
     el("div", { class: "stat" }, [el("div", { class: "v", text: String(S.contacts.length) }), el("div", { class: "k", text: "Contacts" })]),
     el("div", { class: "stat" }, [el("div", { class: "v", text: String(S.notes.length) }), el("div", { class: "k", text: "Note lines" })])
   ]));
-  c2.appendChild(el("div", { class: "btnrow" }, [
+  c3.appendChild(el("div", { class: "btnrow" }, [
     el("button", { class: "btn pri", text: "Download Interpreter Requests.xlsx", onclick: exportTracker })
   ]));
-  p.appendChild(c2);
+  p.appendChild(c3);
 
-  /* backup */
-  var c3 = el("div", { class: "card" });
-  c3.appendChild(el("h2", { text: "3. Backup & restore" }));
-  c3.appendChild(el("div", { class: "lede", text: "Everything in this program as one file, including statuses, contacts and notes." }));
+  /* 4 — backup */
+  var c4 = el("div", { class: "card" });
+  c4.appendChild(el("h2", { text: "4. Backup & restore" }));
+  c4.appendChild(el("div", { class: "lede", text: "Everything in this program as one file. Your data lives in this browser only, so keep a copy somewhere." }));
   var fi = el("input", { type: "file", accept: ".json", class: "sr", id: "restoreFile" });
   fi.addEventListener("change", function () {
     var f = fi.files[0]; if (!f) return;
@@ -1591,13 +1631,14 @@ function renderShare(p) {
         if (!confirm("Replace everything currently in this program with the backup? This cannot be undone.")) return;
         S.events = o.events; S.contacts = o.contacts || []; S.notes = o.notes || [];
         S.meta = Object.assign(S.meta, o.meta || {});
+        if (!S.meta.sharedSnap) S.meta.sharedSnap = {};
         save(); msg("ok", "Backup restored — " + S.events.length + " events."); go("start");
       } catch (err) { msg("err", "That file is not a backup from this program."); render(); }
     };
     fr.readAsText(f);
   });
-  c3.appendChild(fi);
-  c3.appendChild(el("div", { class: "btnrow" }, [
+  c4.appendChild(fi);
+  c4.appendChild(el("div", { class: "btnrow" }, [
     el("button", { class: "btn", text: "Download backup (.json)", onclick: function () {
       download(new Blob([JSON.stringify(S, null, 2)], { type: "application/json" }), "asl-scheduler-backup-" + todayISO() + ".json");
     } }),
@@ -1606,11 +1647,32 @@ function renderShare(p) {
     el("button", { class: "btn danger", text: "Clear all data", onclick: function () {
       if (!confirm("Delete every event, contact and note in this program? Download a backup first if you are not sure.")) return;
       S.events = []; S.contacts = []; S.notes = [];
+      S.meta.sharedAt = null; S.meta.sharedSnap = {};
       S.meta.publishedAt = null; S.meta.publishedSnap = {};
       save(); msg("ok", "All data cleared."); go("start");
     } })
   ]));
-  p.appendChild(c3);
+  p.appendChild(c4);
+
+  /* 5 — web page version, tucked away */
+  var c5 = el("div", { class: "card" });
+  var dd = el("details", { class: "help", style: "margin:0" });
+  dd.appendChild(el("summary", { text: "Web page version — only for a private, password-protected site" }));
+  var db = el("div", { class: "body" });
+  db.appendChild(el("p", { html: "This makes a view-only calendar web page with a <b>What's new</b> list at the top. It is useful only if HPU gives you somewhere internal and sign-in protected to put it. <b>Do not put it on a public web address</b> — it would put the interpreting schedule where anyone could read it." }));
+  var incS = el("input", { type: "checkbox" }); incS.checked = !!S.meta.includeStatusPublic;
+  incS.addEventListener("change", function () { S.meta.includeStatusPublic = incS.checked; save(); });
+  var incN = el("input", { type: "checkbox" }); incN.checked = !!S.meta.includeNotesPublic;
+  incN.addEventListener("change", function () { S.meta.includeNotesPublic = incN.checked; save(); });
+  db.appendChild(el("label", { class: "chk" }, [incS, document.createTextNode("Include request status")]));
+  db.appendChild(el("label", { class: "chk" }, [incN, document.createTextNode("Include your notes (usually leave this off)")]));
+  db.appendChild(el("div", { class: "btnrow", style: "margin-top:8px" }, [
+    el("button", { class: "btn", text: "Generate calendar page", onclick: function () { doPublish(true); } }),
+    el("button", { class: "btn", text: "Preview only", onclick: function () { doPublish(false); } })
+  ]));
+  dd.appendChild(db);
+  c5.appendChild(dd);
+  p.appendChild(c5);
 }
 
 function download(blob, name) {
@@ -1627,16 +1689,16 @@ function doPublish(markPublished) {
   var evs = eventsInYear(ys).filter(function (e) { return e.status !== "Request Cancelled"; });
   if (!evs.length) { msg("warn", "There are no events to publish for " + ys + "–" + (ys + 1) + " yet."); render(); return; }
   var diff = publishDiff(ys);
-  var snap = S.meta.publishedSnap || {};
+  var snap = S.meta.sharedSnap || {};
   var payload = {
     year: ys,
     generated: new Date().toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" }),
-    since: S.meta.publishedAt,
+    since: S.meta.sharedAt,
     showStatus: !!S.meta.includeStatusPublic,
     showNotes: !!S.meta.includeNotesPublic,
     events: evs.map(function (e) {
-      var isNew = S.meta.publishedAt ? !snap[e.id] : false;
-      var isChg = S.meta.publishedAt ? (!!snap[e.id] && snap[e.id] !== evHash(e)) : false;
+      var isNew = S.meta.sharedAt ? !snap[e.id] : false;
+      var isChg = S.meta.sharedAt ? (!!snap[e.id] && snap[e.id] !== evHash(e)) : false;
       return {
         d: e.date, s: e.start, e2: e.end, t: e.title, l: e.location, o: e.onsite,
         i: e.interpreters, st: e.status, n: S.meta.includeNotesPublic ? e.notes : "",
@@ -1647,14 +1709,10 @@ function doPublish(markPublished) {
   var html = buildPublicPage(payload);
   download(new Blob([html], { type: "text/html;charset=utf-8" }), "interpreter-calendar.html");
   if (markPublished) {
-    var ns = {};
-    eventsInYear(ys).forEach(function (e) { ns[e.id] = evHash(e); });
-    S.meta.publishedSnap = ns;
-    S.meta.publishedAt = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-    save();
-    msg("ok", "Calendar page downloaded and marked as published (" + diff.total + " change(s) flagged as new on the page). Upload <code>interpreter-calendar.html</code> to your GitHub Pages repo to push it live.");
+    markShared(ys);
+    msg("ok", "Calendar page saved to your Downloads, and these " + diff.total + " change(s) are now marked as sent.");
   } else {
-    msg("info", "Preview downloaded. Nothing was marked as published — the change list is still waiting.");
+    msg("info", "Preview saved to your Downloads. Nothing was marked as sent — the change list is still waiting.");
   }
   render();
 }
@@ -1768,6 +1826,202 @@ function buildPublicPage(payload) {
   ].join("\n");
 }
 
+/* ============================================================
+   OUTLOOK HAND-OFF (.ics)
+   Only the events CSDHH has not been sent yet, so importing
+   the file again next month cannot create duplicates.
+   ============================================================ */
+var ICS_DAY = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+
+function icsEsc(s) {
+  return String(s == null ? "" : s)
+    .replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,")
+    .replace(/\r?\n/g, "\\n");
+}
+function icsFold(line) { /* RFC 5545 wants lines under 75 octets */
+  if (line.length <= 73) return line;
+  var out = line.slice(0, 73), rest = line.slice(73);
+  while (rest.length) { out += "\r\n " + rest.slice(0, 72); rest = rest.slice(72); }
+  return out;
+}
+function icsStamp() {
+  var d = new Date();
+  return d.getUTCFullYear() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate()) + "T" +
+    pad(d.getUTCHours()) + pad(d.getUTCMinutes()) + pad(d.getUTCSeconds()) + "Z";
+}
+function icsDateOnly(iso) { return iso.replace(/-/g, ""); }
+function icsLocal(iso, t) {
+  var m = String(t || "").toLowerCase().match(/(\d{1,2}):(\d{2})\s*(am|pm)?/);
+  if (!m) return null;
+  var h = +m[1]; if (m[3] === "pm" && h < 12) h += 12; if (m[3] === "am" && h === 12) h = 0;
+  return icsDateOnly(iso) + "T" + pad(h % 24) + pad(+m[2]) + "00";
+}
+function addMinutesISO(iso, t, mins) {
+  var m = String(t || "").toLowerCase().match(/(\d{1,2}):(\d{2})\s*(am|pm)?/);
+  if (!m) return null;
+  var h = +m[1]; if (m[3] === "pm" && h < 12) h += 12; if (m[3] === "am" && h === 12) h = 0;
+  var d = fromISO(iso); d.setHours(h, +m[2] + mins, 0, 0);
+  return icsDateOnly(toISO(d)) + "T" + pad(d.getHours()) + pad(d.getMinutes()) + "00";
+}
+
+/* does a weekly rule with these weekdays and interval reproduce exactly this date set? */
+function weeklyRuleFits(list, dks, interval) {
+  var first = fromISO(list[0].date), last = fromISO(list[list.length - 1].date);
+  var anchor = new Date(first); anchor.setDate(anchor.getDate() - anchor.getDay());
+  var made = [], cur = new Date(first);
+  while (cur <= last) {
+    if (dks.indexOf(cur.getDay()) >= 0) {
+      var wk = Math.round((cur - anchor) / 604800000);
+      if (wk % interval === 0) made.push(toISO(cur));
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return made.join("|") === list.map(function (e) { return e.date; }).join("|");
+}
+function seriesRule(list) {
+  if (list.length < 3) return null; /* not worth a rule */
+  var dks = [];
+  list.forEach(function (e) { var d = fromISO(e.date).getDay(); if (dks.indexOf(d) < 0) dks.push(d); });
+  dks.sort();
+  var times = list.map(function (e) { return (e.start || "") + "|" + (e.end || ""); });
+  if (times.some(function (t) { return t !== times[0]; })) return null; /* times vary — keep separate */
+  for (var iv = 1; iv <= 4; iv++) {
+    if (weeklyRuleFits(list, dks, iv)) {
+      return "FREQ=WEEKLY;INTERVAL=" + iv + ";BYDAY=" + dks.map(function (d) { return ICS_DAY[d]; }).join(",") +
+        ";COUNT=" + list.length;
+    }
+  }
+  return null;
+}
+
+function buildICS(events) {
+  var L = [
+    "BEGIN:VCALENDAR", "VERSION:2.0",
+    "PRODID:-//High Point University OARS//ASL Interpreter Scheduler//EN",
+    "CALSCALE:GREGORIAN", "METHOD:PUBLISH"
+  ];
+  var stamp = icsStamp();
+  var sorted = events.slice().sort(sortEvents);
+
+  /* group a recurring series only when every one of its events is in this export */
+  var groups = {}, singles = [];
+  sorted.forEach(function (e) {
+    if (!e.series) { singles.push(e); return; }
+    (groups[e.series] = groups[e.series] || []).push(e);
+  });
+  Object.keys(groups).forEach(function (sid) {
+    var all = S.events.filter(function (x) { return x.series === sid; });
+    if (groups[sid].length !== all.length) { singles = singles.concat(groups[sid]); delete groups[sid]; }
+  });
+
+  function vevent(e, rule, count) {
+    var out = ["BEGIN:VEVENT", "UID:" + e.id + "@hpu-oars-asl", "DTSTAMP:" + stamp];
+    var st = icsLocal(e.date, e.start);
+    if (st) {
+      out.push("DTSTART:" + st);
+      out.push("DTEND:" + (icsLocal(e.date, e.end) || addMinutesISO(e.date, e.start, 60)));
+    } else {
+      var nd = fromISO(e.date); nd.setDate(nd.getDate() + 1);
+      out.push("DTSTART;VALUE=DATE:" + icsDateOnly(e.date));
+      out.push("DTEND;VALUE=DATE:" + icsDateOnly(toISO(nd)));
+    }
+    if (rule) out.push("RRULE:" + rule);
+    out.push("SUMMARY:" + icsEsc("ASL Interpreting: " + e.title));
+    if (e.location) out.push("LOCATION:" + icsEsc(e.location));
+    var desc = [];
+    if (e.onsite) desc.push("On-site contact: " + e.onsite);
+    if (e.interpreters) desc.push("Interpreter(s): " + e.interpreters);
+    if (count) desc.push("Recurring: " + count + " occurrences");
+    desc.push("Requested through HPU Office of Accessibility Resources & Services.");
+    out.push("DESCRIPTION:" + icsEsc(desc.join("\n")));
+    out.push("END:VEVENT");
+    return out;
+  }
+
+  Object.keys(groups).forEach(function (sid) {
+    var list = groups[sid].slice().sort(sortEvents);
+    var rule = seriesRule(list);
+    if (rule) L = L.concat(vevent(list[0], rule, list.length));
+    else list.forEach(function (e) { L = L.concat(vevent(e, null, 0)); });
+  });
+  singles.forEach(function (e) { L = L.concat(vevent(e, null, 0)); });
+
+  L.push("END:VCALENDAR");
+  return L.map(icsFold).join("\r\n") + "\r\n";
+}
+
+function exportICS(onlyNew) {
+  var ys = S.meta.yearStart;
+  var diff = publishDiff(ys);
+  var list = onlyNew ? diff.added.concat(diff.changed) : eventsInYear(ys);
+  list = list.filter(function (e) { return e.status !== "Request Cancelled"; });
+  if (!list.length) {
+    msg("warn", onlyNew ? "Nothing new to send — CSDHH already has every event on this calendar." : "There are no events to export yet.");
+    render(); return;
+  }
+  download(new Blob([buildICS(list)], { type: "text/calendar;charset=utf-8" }),
+    (onlyNew ? "New interpreter events " : "Interpreter calendar ") + todayISO() + ".ics");
+  var changedCount = onlyNew ? diff.changed.length : 0;
+  markShared(ys);
+  msg("ok", "Saved <b>" + list.length + "</b> event" + (list.length === 1 ? "" : "s") + " to your Downloads as a calendar file. Drag it onto your shared <b>ASL Interpreting</b> calendar in Outlook." +
+    (changedCount ? " <b>Note:</b> " + changedCount + " of these changed rather than being brand new — Outlook will add a second copy, so delete the old one on those." : ""));
+  render();
+}
+
+/* ---------------- update email ---------------- */
+function updateEmailText() {
+  var ys = S.meta.yearStart;
+  var d = publishDiff(ys);
+  var lines = [];
+  lines.push("Hello,");
+  lines.push("");
+  if (d.added.length) {
+    lines.push("The following interpreting requests have been added:");
+    lines.push("");
+    d.added.forEach(function (e) {
+      lines.push("  " + longDate(e.date) + (e.start ? ", " + timeRange(e) : "") +
+        "\n    " + e.title + (e.location ? " — " + e.location : "") +
+        (e.onsite ? "\n    On-site contact: " + e.onsite : ""));
+    });
+    lines.push("");
+  }
+  if (d.changed.length) {
+    lines.push("The following have changed:");
+    lines.push("");
+    d.changed.forEach(function (e) {
+      lines.push("  " + longDate(e.date) + (e.start ? ", " + timeRange(e) : "") +
+        "\n    " + e.title + (e.location ? " — " + e.location : ""));
+    });
+    lines.push("");
+  }
+  if (!d.added.length && !d.changed.length) {
+    lines.push("No changes to the interpreting schedule since the last update.");
+    lines.push("");
+  }
+  lines.push("These are also on the shared ASL Interpreting calendar.");
+  lines.push("");
+  lines.push("Thank you,");
+  lines.push("Joel Peddle, Ed.D.");
+  lines.push("Assistant Director for Assistive Technology and OARS Testing Center");
+  lines.push("Office of Accessibility Resources and Services");
+  lines.push("High Point University");
+  return lines.join("\n");
+}
+function copyUpdateEmail() {
+  var txt = updateEmailText();
+  function done() { msg("ok", "Update email copied. Paste it into a new message to CSDHH."); render(); }
+  function fallback() {
+    var ta = el("textarea", { style: "position:fixed;top:-1000px" });
+    ta.value = txt; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); done(); }
+    catch (e) { msg("warn", "Could not reach the clipboard. Here is the text to copy by hand:<br><br><pre style='white-space:pre-wrap;font-size:12px'>" + esc(txt) + "</pre>"); render(); }
+    ta.remove();
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(done, fallback);
+  } else fallback();
+}
+
 /* ---------------- tracker export ---------------- */
 function trackerCounts() {
   var today = todayISO();
@@ -1870,7 +2124,9 @@ window.__ASL = {
   S: S, parseFormsSheet: parseFormsSheet, parseTrackerRows: parseTrackerRows,
   parseContacts: parseContacts, parseNotes: parseNotes, expandRecurrence: expandRecurrence,
   parseDateVal: parseDateVal, parseTimeVal: parseTimeVal, buildPublicPage: buildPublicPage,
-  exportTracker: exportTracker, stage: stage, commitPending: commitPending, UI: UI, render: render
+  exportTracker: exportTracker, stage: stage, commitPending: commitPending, UI: UI, render: render,
+  buildICS: buildICS, exportICS: exportICS, seriesRule: seriesRule,
+  updateEmailText: updateEmailText, publishDiff: publishDiff, markShared: markShared
 };
 
 })();
