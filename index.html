@@ -294,6 +294,35 @@ table.data tr:hover td{background:#faf8fd}
 .msg.err{background:var(--err-bg); color:var(--err)}
 .msg.info{background:var(--info-bg); color:var(--info)}
 
+/* ---------- bulk action bar ---------- */
+.bulkbar{
+  position:sticky; top:0; z-index:5;
+  display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+  background:var(--purple); color:#fff; border-radius:9px; padding:9px 13px; margin-bottom:11px;
+  box-shadow:0 2px 10px rgba(74,29,122,.25);
+}
+.bulkbar .count{font-weight:700; font-size:13.5px}
+.bulkbar button{
+  font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; padding:5px 11px; border-radius:7px;
+  border:1px solid rgba(255,255,255,.45); background:rgba(255,255,255,.14); color:#fff;
+}
+.bulkbar button:hover{background:rgba(255,255,255,.26)}
+.bulkbar button.del{background:#fff; color:var(--err); border-color:#fff}
+.bulkbar button.del:hover{background:#ffe9e9}
+.bulkbar select{
+  font:inherit; font-size:12.5px; padding:5px 8px; border-radius:7px; width:auto;
+  border:1px solid rgba(255,255,255,.45); background:rgba(255,255,255,.14); color:#fff;
+}
+.bulkbar select option{color:var(--ink)}
+.bulkbar .sp{flex:1}
+td.selcell,th.selcell{width:34px; text-align:center; padding-left:6px; padding-right:0}
+td.selcell input,th.selcell input{width:16px; height:16px; accent-color:var(--purple); cursor:pointer}
+table.data tr.picked td{background:var(--purple-lt)}
+.repeat{
+  display:inline-block; font-size:10.5px; font-weight:700; color:var(--purple);
+  background:var(--purple-lt); border-radius:9px; padding:1px 6px; margin-left:6px; white-space:nowrap;
+}
+
 .filters{display:flex; gap:9px; flex-wrap:wrap; align-items:center; margin-bottom:13px}
 .filters select,.filters input{width:auto; min-width:130px}
 
@@ -1302,6 +1331,10 @@ function printCal(whole) {
 }
 
 /* ---------------- TAB 4: EVENTS ---------------- */
+function sameName(title) {
+  var t = clean(title).toLowerCase();
+  return S.events.filter(function (e) { return clean(e.title).toLowerCase() === t; });
+}
 function renderEvents(p) {
   var m = msgNode(); if (m) p.appendChild(m);
   p.appendChild(helpBox("What to do on this tab", [
@@ -1309,6 +1342,7 @@ function renderEvents(p) {
     "<ul>",
     "<li>Filter by <b>status</b> to find everything that still needs a request sent, or everything confirmed but missing an interpreter.</li>",
     "<li><b>Click a row</b> to open the full record and edit it.</li>",
+    "<li><b>Tick the boxes</b> down the left to work on several at once. With one ticked, the bar at the top offers to select every other event with the same name — so a club that meets thirty times can be deleted, or moved to a new status, in two clicks.</li>",
     "<li>The <b>Access</b>, <b>Notify</b> and <b>Noted</b> columns are the same three checkboxes as the tracker: campus access / hang tag arranged, student notified, case noted.</li>",
     "</ul>"
   ].join("")));
@@ -1316,6 +1350,12 @@ function renderEvents(p) {
   var ys = S.meta.yearStart;
   var evs = eventsInYear(ys);
   var card = el("div", { class: "card" });
+
+  UI.sel = UI.sel || {};
+  /* forget anything that has since been deleted */
+  var liveIds = {};
+  S.events.forEach(function (e) { liveIds[e.id] = 1; });
+  Object.keys(UI.sel).forEach(function (id) { if (!liveIds[id]) delete UI.sel[id]; });
 
   var f = el("div", { class: "filters noprint" });
   var fStatus = el("select");
@@ -1337,7 +1377,9 @@ function renderEvents(p) {
   f.appendChild(el("button", { class: "btn sm", text: "Add event", onclick: function () { openDrawer(null); } }));
   card.appendChild(f);
 
+  var bar = el("div");
   var body = el("div");
+  card.appendChild(bar);
   card.appendChild(body);
   p.appendChild(card);
 
@@ -1349,11 +1391,76 @@ function renderEvents(p) {
   fWhen.addEventListener("change", apply);
   fText.addEventListener("input", apply);
 
+  var rows = [];
   draw();
+
+  function selectedEvents() {
+    return S.events.filter(function (e) { return UI.sel[e.id]; });
+  }
+  function drawBar() {
+    bar.innerHTML = "";
+    var picked = selectedEvents();
+    if (!picked.length) return;
+    var b = el("div", { class: "bulkbar noprint" });
+    b.appendChild(el("span", { class: "count", text: picked.length + " selected" }));
+
+    /* if everything picked shares one name, offer the rest of that name */
+    var names = {};
+    picked.forEach(function (e) { names[clean(e.title).toLowerCase()] = e.title; });
+    var keys = Object.keys(names);
+    if (keys.length === 1) {
+      var family = sameName(names[keys[0]]);
+      var missing = family.filter(function (e) { return !UI.sel[e.id]; });
+      if (missing.length) {
+        b.appendChild(el("button", {
+          text: "Select all " + family.length + " “" + names[keys[0]] + "”",
+          onclick: function () {
+            family.forEach(function (e) { UI.sel[e.id] = true; });
+            draw();
+          }
+        }));
+      }
+    }
+
+    var st = el("select", { "aria-label": "Set status for the selected events" });
+    st.appendChild(el("option", { value: "", text: "Set status to…" }));
+    STATUSES.forEach(function (x) { st.appendChild(el("option", { value: x, text: x })); });
+    st.addEventListener("change", function () {
+      if (!st.value) return;
+      var n = 0;
+      selectedEvents().forEach(function (e) { e.status = st.value; n++; });
+      save();
+      msg("ok", "Set <b>" + n + "</b> event" + (n === 1 ? "" : "s") + " to <i>" + esc(st.value) + "</i>.");
+      render();
+    });
+    b.appendChild(st);
+
+    b.appendChild(el("button", {
+      class: "del", text: "Delete selected",
+      onclick: function () {
+        var list = selectedEvents();
+        var what = keys.length === 1
+          ? list.length + " event" + (list.length === 1 ? "" : "s") + " named “" + names[keys[0]] + "”"
+          : list.length + " selected event" + (list.length === 1 ? "" : "s");
+        if (!confirm("Delete " + what + "? This cannot be undone.")) return;
+        var gone = {};
+        list.forEach(function (e) { gone[e.id] = 1; });
+        S.events = S.events.filter(function (e) { return !gone[e.id]; });
+        UI.sel = {};
+        save();
+        msg("ok", "Deleted <b>" + list.length + "</b> event" + (list.length === 1 ? "" : "s") + ".");
+        render();
+      }
+    }));
+    b.appendChild(el("span", { class: "sp" }));
+    b.appendChild(el("button", { text: "Clear selection", onclick: function () { UI.sel = {}; draw(); } }));
+    bar.appendChild(b);
+  }
+
   function draw() {
     var today = todayISO();
     var q = clean(UI.evText).toLowerCase();
-    var rows = evs.filter(function (e) {
+    rows = evs.filter(function (e) {
       if (UI.evFilter && e.status !== UI.evFilter) return false;
       var w = UI.evWhen || "upcoming";
       if (w === "upcoming" && e.date < today) return false;
@@ -1361,6 +1468,7 @@ function renderEvents(p) {
       if (q && [e.title, e.location, e.onsite, e.interpreters, e.notes].join(" ").toLowerCase().indexOf(q) < 0) return false;
       return true;
     });
+    drawBar();
     body.innerHTML = "";
     if (!rows.length) {
       body.appendChild(el("div", { class: "empty" }, [
@@ -1370,19 +1478,53 @@ function renderEvents(p) {
       return;
     }
     body.appendChild(el("div", { class: "note", text: rows.length + " event" + (rows.length === 1 ? "" : "s") + " shown." }));
+
+    /* how many times each name appears across the whole year */
+    var nameCount = {};
+    evs.forEach(function (e) {
+      var k = clean(e.title).toLowerCase();
+      nameCount[k] = (nameCount[k] || 0) + 1;
+    });
+
     var sc = el("div", { class: "scroll-x" });
     var t = el("table", { class: "data" });
     var hr = el("tr");
+    var all = el("input", { type: "checkbox", "aria-label": "Select every event shown" });
+    all.checked = rows.length > 0 && rows.every(function (e) { return UI.sel[e.id]; });
+    all.addEventListener("change", function () {
+      rows.forEach(function (e) { if (all.checked) UI.sel[e.id] = true; else delete UI.sel[e.id]; });
+      draw();
+    });
+    hr.appendChild(el("th", { class: "selcell", scope: "col" }, all));
     ["Date", "Time", "Event", "Location", "Status", "Interpreter(s)", "Onsite contact", "Access", "Notify", "Noted"].forEach(function (h) {
       hr.appendChild(el("th", { text: h, scope: "col" }));
     });
     t.appendChild(el("thead", null, hr));
     var tb = el("tbody");
     rows.forEach(function (e) {
-      var tr = el("tr", { style: "cursor:pointer", onclick: function () { openDrawer(e.id); } });
+      var tr = el("tr", { class: UI.sel[e.id] ? "picked" : "" });
+      var cb = el("input", { type: "checkbox", "aria-label": "Select " + e.title + " on " + longDate(e.date) });
+      cb.checked = !!UI.sel[e.id];
+      cb.addEventListener("click", function (ev) { ev.stopPropagation(); });
+      cb.addEventListener("change", function () {
+        if (cb.checked) UI.sel[e.id] = true; else delete UI.sel[e.id];
+        draw();
+      });
+      var sel = el("td", { class: "selcell" }, cb);
+      sel.addEventListener("click", function (ev) { ev.stopPropagation(); });
+      tr.appendChild(sel);
+
+      tr.addEventListener("click", function () { openDrawer(e.id); });
+      tr.style.cursor = "pointer";
       tr.appendChild(el("td", { html: "<b>" + esc(shortDate(e.date)) + "</b><br><span style='color:var(--ink-3);font-size:11.5px'>" + esc(DAYS[fromISO(e.date).getDay()].slice(0, 3)) + "</span>" }));
       tr.appendChild(el("td", { text: timeRange(e) }));
-      tr.appendChild(el("td", null, [el("b", { text: e.title }), e.notes ? el("div", { style: "color:var(--ink-3);font-size:11.5px", text: e.notes.slice(0, 70) }) : null]));
+      var n = nameCount[clean(e.title).toLowerCase()] || 1;
+      var titleCell = el("td", null, [
+        el("b", { text: e.title }),
+        n > 1 ? el("span", { class: "repeat", text: "×" + n }) : null,
+        e.notes ? el("div", { style: "color:var(--ink-3);font-size:11.5px", text: e.notes.slice(0, 70) }) : null
+      ]);
+      tr.appendChild(titleCell);
       tr.appendChild(el("td", { text: e.location }));
       tr.appendChild(el("td", null, el("span", { class: "pill " + SCLASS[e.status], text: e.status })));
       tr.appendChild(el("td", { text: e.interpreters || "—" }));
@@ -1653,7 +1795,18 @@ function openDrawer(id, cm, presetDate) {
       S.events.push(c); save(); close(); msg("ok", "Duplicated — open the copy to change its date."); render();
     } }),
     el("span", { style: "flex:1" }),
-    isNew ? null : el("button", { class: "btn danger", text: "Delete", onclick: function () {
+    isNew || sameName(draft.title).length < 2 ? null : el("button", {
+      class: "btn danger", text: "Delete all " + sameName(draft.title).length,
+      title: "Delete every event named “" + draft.title + "”",
+      onclick: function () {
+        var fam = sameName(draft.title);
+        if (!confirm("Delete all " + fam.length + " events named “" + draft.title + "”? This cannot be undone.")) return;
+        var gone = {}; fam.forEach(function (x) { gone[x.id] = 1; });
+        S.events = S.events.filter(function (x) { return !gone[x.id]; });
+        save(); close(); msg("ok", "Deleted <b>" + fam.length + "</b> events named “" + esc(draft.title) + "”."); render();
+      }
+    }),
+    isNew ? null : el("button", { class: "btn danger", text: "Delete this one", onclick: function () {
       S.events = S.events.filter(function (x) { return x.id !== draft.id; });
       save(); close(); msg("ok", "Event deleted."); render();
     } })
@@ -2537,6 +2690,7 @@ window.__ASL = {
   exportTracker: exportTracker, stage: stage, commitPending: commitPending, UI: UI, render: render,
   buildICS: buildICS, exportICS: exportICS, seriesRule: seriesRule,
   suggest: suggest, lastLike: lastLike, splitPeople: splitPeople, openDrawer: openDrawer,
+  sameName: sameName,
   updateEmailText: updateEmailText, publishDiff: publishDiff, markShared: markShared,
   openEmailPreview: openEmailPreview, emailSubject: emailSubject, agencyEmail: agencyEmail
 };
