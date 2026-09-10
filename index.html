@@ -230,6 +230,23 @@ table.data tr:hover td{background:#faf8fd}
 .rowline.clash{border-color:#e8b4b4; background:var(--err-bg)}
 
 .note{font-size:12.5px; color:var(--ink-3); margin-top:9px}
+
+/* ---------- remembered-value chips ---------- */
+.chips{display:flex; flex-wrap:wrap; gap:5px; margin:-5px 0 11px}
+.chips .lbl{font-size:11px; color:var(--ink-3); align-self:center; margin-right:2px}
+.chips button{
+  font:inherit; font-size:11.5px; font-weight:550; cursor:pointer; padding:3px 8px;
+  border:1px solid var(--line); border-radius:20px; background:var(--purple-lt); color:var(--purple-dk);
+}
+.chips button:hover{background:#e7dbf5; border-color:var(--purple-mid)}
+.chips button.on{background:var(--purple); border-color:var(--purple); color:#fff}
+.autofill{
+  font-size:12px; background:var(--info-bg); color:var(--info); border-radius:7px;
+  padding:7px 10px; margin:-4px 0 12px;
+}
+.cal td.addable{cursor:pointer}
+.cal td.addable:hover{background:var(--purple-lt); box-shadow:inset 0 0 0 2px var(--purple-mid)}
+.cal td.out.addable:hover{background:var(--purple-lt)}
 .msg{padding:10px 13px; border-radius:8px; font-size:13.5px; margin-bottom:12px}
 .msg.ok{background:var(--ok-bg); color:var(--ok)}
 .msg.warn{background:var(--warn-bg); color:var(--warn)}
@@ -1130,7 +1147,8 @@ function renderCal(p) {
     "<ul>",
     "<li><b>Colour = status.</b> Red means no request has been sent to CSDHH yet. Amber means in progress. Green means confirmed.</li>",
     "<li><b>Print</b> gives you the landscape month grid, same shape as the Word document you use now. <i>Print whole year</i> puts every month on its own page.</li>",
-    "<li><b>Add event</b> is for anything that did not come through the form — a phone request, a last-minute add.</li>",
+    "<li><b>Click an empty day</b> to add an event on that date — the date is filled in for you. <b>Add event</b> at the top does the same thing.</li>",
+    "<li>The form <b>remembers</b> locations, on-site contacts and interpreters you have used before, and offers them in a dropdown. Type a known event name and it fills in that event's usual time, room, contact and interpreter from the last time it ran.</li>",
     "</ul>"
   ].join("")));
 
@@ -1193,11 +1211,20 @@ function monthTable(y, m, interactive) {
       var iso = toISO(cur);
       var out = cur.getMonth() !== m;
       if (!out) any = true;
-      var td = el("td", { class: (out ? "out" : "") + (iso === today ? " today" : "") });
+      var td = el("td", { class: (out ? "out" : "") + (iso === today ? " today" : "") + (interactive ? " addable" : "") });
       td.appendChild(el("div", { class: "dnum", text: String(cur.getDate()) }));
       eventsOn(iso).forEach(function (e) {
         td.appendChild(eventChip(e, interactive));
       });
+      if (interactive) {
+        td.title = "Click to add an event on " + longDate(iso);
+        td.addEventListener("click", (function (dayISO) {
+          return function (ev) {
+            if (ev.target.closest(".ev")) return; /* clicked an event, not the day */
+            openDrawer(null, null, dayISO);
+          };
+        })(iso));
+      }
       row.appendChild(td);
     }
     if (any || w < 5) tb.appendChild(row);
@@ -1330,16 +1357,85 @@ function renderEvents(p) {
   }
 }
 
+/* ============================================================
+   REMEMBERED VALUES
+   Everything the program has seen before, so the event form can
+   offer it back instead of making you retype it.
+   ============================================================ */
+function freqSort(counts) {
+  return Object.keys(counts).sort(function (a, b) {
+    if (counts[b] !== counts[a]) return counts[b] - counts[a];
+    return a.toLowerCase() < b.toLowerCase() ? -1 : 1;
+  });
+}
+function tally(values) {
+  var c = {};
+  values.forEach(function (v) { v = clean(v); if (v) c[v] = (c[v] || 0) + 1; });
+  return c;
+}
+/* pull individual people out of fields like "Hannah Rison or Andy Brehm" */
+function splitPeople(v) {
+  return clean(v).split(/\s*(?:,|;|\/|\band\b|\bor\b|&)\s*/i)
+    .map(clean)
+    .filter(function (n) { return n && n.length > 2 && !/^(tbd|tba|n\/?a|unknown|\?+)$/i.test(n); });
+}
+function suggest() {
+  var ev = S.events;
+  var titles = freqSort(tally(ev.map(function (e) { return e.title; })));
+  var locations = freqSort(tally(ev.map(function (e) { return e.location; })));
+  var types = freqSort(tally(ev.map(function (e) { return e.type; })));
+
+  /* on-site: whole phrases as they were entered, plus the contact table */
+  var onsiteRaw = ev.map(function (e) { return e.onsite; });
+  S.contacts.forEach(function (c) { onsiteRaw.push(c.advisor); onsiteRaw.push(c.backup); });
+  var onsite = freqSort(tally(onsiteRaw));
+
+  /* individual people, for one-click adding */
+  var onsitePeopleC = {};
+  onsiteRaw.forEach(function (v) { splitPeople(v).forEach(function (n) { onsitePeopleC[n] = (onsitePeopleC[n] || 0) + 1; }); });
+  S.contacts.forEach(function (c) {
+    [c.advisor, c.president, c.backup].forEach(function (n) { n = clean(n); if (n) onsitePeopleC[n] = (onsitePeopleC[n] || 0) + 1; });
+  });
+  var interpC = {};
+  ev.forEach(function (e) { splitPeople(e.interpreters).forEach(function (n) { interpC[n] = (interpC[n] || 0) + 1; }); });
+
+  return {
+    titles: titles, locations: locations, types: types, onsite: onsite,
+    onsitePeople: freqSort(onsitePeopleC), interpreters: freqSort(interpC)
+  };
+}
+/* the most recent time this event ran, to copy its usual details from */
+function lastLike(title, skipId) {
+  var t = clean(title).toLowerCase();
+  if (!t) return null;
+  var hits = S.events.filter(function (e) {
+    return e.id !== skipId && clean(e.title).toLowerCase() === t;
+  }).sort(sortEvents);
+  if (!hits.length) return null;
+  var today = todayISO();
+  /* prefer the last one that already happened — its details are settled */
+  var past = hits.filter(function (e) { return e.date <= today; });
+  return past.length ? past[past.length - 1] : hits[0];
+}
+/* the contact-table row for an event name, if there is one */
+function contactFor(title) {
+  var t = clean(title).toLowerCase();
+  if (!t) return null;
+  return S.contacts.filter(function (c) { return clean(c.org).toLowerCase() === t; })[0] || null;
+}
+
 /* ---------------- DRAWER (event editor) ---------------- */
-function openDrawer(id, cm) {
+function openDrawer(id, cm, presetDate) {
   var e = id ? S.events.filter(function (x) { return x.id === id; })[0] : null;
   var isNew = !e;
   if (!e) {
     e = blankEvent();
-    var c = cm || currentMonth();
-    e.date = c.y + "-" + pad(c.m + 1) + "-01";
+    if (presetDate) e.date = presetDate;
+    else { var c = cm || currentMonth(); e.date = c.y + "-" + pad(c.m + 1) + "-01"; }
   }
   var draft = Object.assign({}, e);
+  var SG = suggest();
+  var refs = {};
   var root = $("drawerRoot");
   root.innerHTML = "";
   var bg = el("div", { class: "drawer-bg", onclick: close });
@@ -1351,7 +1447,16 @@ function openDrawer(id, cm) {
   ]);
   var body = el("div", { class: "dbody" });
 
-  function fld(label, key, type, opts) {
+  var dlSeq = 0;
+  function datalist(items) {
+    if (!items || !items.length) return null;
+    var lid = "dl" + (++dlSeq) + "-" + Math.random().toString(36).slice(2, 6);
+    var dl = el("datalist", { id: lid });
+    items.slice(0, 60).forEach(function (v) { dl.appendChild(el("option", { value: v })); });
+    body.appendChild(dl);
+    return lid;
+  }
+  function fld(label, key, type, opts, list) {
     var input;
     if (type === "select") {
       input = el("select");
@@ -1365,9 +1470,15 @@ function openDrawer(id, cm) {
     } else {
       input = el("input", { type: type || "text" });
       input.value = draft[key] || "";
+      var lid = list ? datalist(list) : null;
+      if (lid) {
+        input.setAttribute("list", lid);
+        input.setAttribute("autocomplete", "off");
+      }
     }
     input.addEventListener("input", function () { draft[key] = input.value; });
     input.addEventListener("change", function () { draft[key] = input.value; });
+    refs[key] = input;
     return el("label", { class: "fld" }, [el("span", { text: label }), input]);
   }
   function chk(label, key) {
@@ -1376,20 +1487,63 @@ function openDrawer(id, cm) {
     i.addEventListener("change", function () { draft[key] = i.checked; });
     return el("label", { class: "chk" }, [i, document.createTextNode(label)]);
   }
+  /* one-click name buttons that append into a multi-name field */
+  function chipRow(label, key, names) {
+    if (!names.length) return null;
+    var row = el("div", { class: "chips" });
+    row.appendChild(el("span", { class: "lbl", text: label }));
+    var btns = [];
+    names.slice(0, 14).forEach(function (n) {
+      var b = el("button", { type: "button", text: n });
+      b.addEventListener("click", function () {
+        var cur = clean(refs[key].value);
+        var have = splitPeople(cur).some(function (x) { return x.toLowerCase() === n.toLowerCase(); });
+        if (have) {
+          var kept = splitPeople(cur).filter(function (x) { return x.toLowerCase() !== n.toLowerCase(); });
+          refs[key].value = kept.join(", ");
+        } else {
+          refs[key].value = cur ? cur + ", " + n : n;
+        }
+        draft[key] = refs[key].value;
+        paint();
+      });
+      btns.push({ b: b, n: n });
+      row.appendChild(b);
+    });
+    function paint() {
+      var have = splitPeople(refs[key].value).map(function (x) { return x.toLowerCase(); });
+      btns.forEach(function (o) { o.b.classList.toggle("on", have.indexOf(o.n.toLowerCase()) >= 0); });
+    }
+    row.__paint = paint;
+    setTimeout(paint, 0);
+    refs[key].addEventListener("input", paint);
+    return row;
+  }
 
-  body.appendChild(fld("Event name", "title"));
+  body.appendChild(fld("Event name", "title", "text", null, SG.titles));
+  var fillNote = el("div", { class: "autofill", hidden: true });
+  body.appendChild(fillNote);
+
   var g = el("div", { class: "grid2" });
   g.appendChild(fld("Date", "date", "date"));
-  g.appendChild(fld("Event type", "type"));
+  g.appendChild(fld("Event type", "type", "text", null, SG.types));
   body.appendChild(g);
   var g2 = el("div", { class: "grid2" });
   g2.appendChild(fld("Start time", "start"));
   g2.appendChild(fld("End time", "end"));
   body.appendChild(g2);
-  body.appendChild(fld("Meeting place / campus location", "location"));
-  body.appendChild(fld("Onsite contact", "onsite"));
+
+  body.appendChild(fld("Meeting place / campus location", "location", "text", null, SG.locations));
+  body.appendChild(fld("Onsite contact", "onsite", "text", null, SG.onsite));
+  var onsiteChips = chipRow("Add:", "onsite", SG.onsitePeople);
+  if (onsiteChips) body.appendChild(onsiteChips);
+
   body.appendChild(fld("Request status", "status", "select", STATUSES));
+  /* no dropdown here — the chips below handle picking, since this field takes several names */
   body.appendChild(fld("Interpreter(s) assigned", "interpreters"));
+  var interpChips = chipRow("Add:", "interpreters", SG.interpreters);
+  if (interpChips) body.appendChild(interpChips);
+
   body.appendChild(el("div", { style: "margin:6px 0 10px" }, [
     chk("Campus access / hang tag arranged", "campus"),
     chk("Student notified", "notify"),
@@ -1397,6 +1551,40 @@ function openDrawer(id, cm) {
   ]));
   body.appendChild(fld("Notes", "notes", "textarea"));
   body.appendChild(fld("Follow-up / sub notes", "subnotes", "textarea"));
+
+  /* pick a known event name and its usual details come with it */
+  function tryAutofill() {
+    var prev = lastLike(refs.title.value, draft.id);
+    var contact = contactFor(refs.title.value);
+    if (!prev && !contact) { fillNote.hidden = true; return; }
+    var filled = [];
+    function put(key, val, label) {
+      if (!clean(val)) return;
+      if (clean(refs[key].value)) return;   /* never overwrite what you typed */
+      refs[key].value = val; draft[key] = val; filled.push(label);
+    }
+    if (prev) {
+      put("start", prev.start, "start time");
+      put("end", prev.end, "end time");
+      put("location", prev.location, "location");
+      put("onsite", prev.onsite, "on-site contact");
+      put("type", prev.type, "event type");
+      put("interpreters", prev.interpreters, "interpreter");
+    }
+    if (contact) put("onsite", contact.advisor, "on-site contact");
+    if (onsiteChips) onsiteChips.__paint();
+    if (interpChips) interpChips.__paint();
+    if (!filled.length) { fillNote.hidden = true; return; }
+    fillNote.hidden = false;
+    fillNote.innerHTML = "Filled in the " + filled.join(", ") +
+      (prev ? " from this event on " + esc(longDate(prev.date)) : " from your contact list") +
+      ". Change anything that is different this time.";
+  }
+  refs.title.addEventListener("change", tryAutofill);
+  refs.title.addEventListener("input", function () {
+    /* fires when a suggestion is picked from the dropdown */
+    if (SG.titles.some(function (t) { return t.toLowerCase() === clean(refs.title.value).toLowerCase(); })) tryAutofill();
+  });
 
   if (draft.reqName || draft.reqEmail || draft.submitted) {
     body.appendChild(el("div", { class: "msg info", style: "margin-top:6px", html: "<b>From the request form</b><br>" + esc(draft.reqName || "—") + (draft.reqEmail ? " &middot; " + esc(draft.reqEmail) : "") + (draft.submitted ? "<br>Submitted " + esc(draft.submitted) : "") }));
@@ -1433,8 +1621,7 @@ function openDrawer(id, cm) {
   d.appendChild(hd); d.appendChild(body); d.appendChild(ft);
   root.appendChild(bg); root.appendChild(d);
   document.addEventListener("keydown", onKey);
-  var firstInput = d.querySelector("input,select,textarea");
-  if (firstInput) firstInput.focus();
+  if (refs.title) refs.title.focus();
 
   function onKey(ev) { if (ev.key === "Escape") close(); }
   function close() {
@@ -1460,7 +1647,9 @@ function openDrawer(id, cm) {
       }
     }
     save(); close();
-    msg("ok", isNew ? "Event added." : "Saved.");
+    /* jump the calendar to wherever the event landed, then redraw */
+    UI.month = draft.date.slice(0, 7);
+    msg("ok", isNew ? "Event added to " + longDate(draft.date) + "." : "Saved.");
     render();
   }
 }
@@ -2126,6 +2315,7 @@ window.__ASL = {
   parseDateVal: parseDateVal, parseTimeVal: parseTimeVal, buildPublicPage: buildPublicPage,
   exportTracker: exportTracker, stage: stage, commitPending: commitPending, UI: UI, render: render,
   buildICS: buildICS, exportICS: exportICS, seriesRule: seriesRule,
+  suggest: suggest, lastLike: lastLike, splitPeople: splitPeople, openDrawer: openDrawer,
   updateEmailText: updateEmailText, publishDiff: publishDiff, markShared: markShared
 };
 
