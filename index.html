@@ -106,7 +106,7 @@ button.btn.sm{padding:5px 10px; font-size:12.5px}
 
 label.fld{display:block; margin-bottom:11px}
 label.fld > span{display:block; font-size:12px; font-weight:600; color:var(--ink-2); margin-bottom:4px}
-input[type=text],input[type=date],input[type=email],select,textarea{
+input[type=text],input[type=date],input[type=email],input[type=tel],input[type=time],input[type=search],select,textarea{
   font:inherit; font-size:13.5px; width:100%; padding:7px 9px;
   border:1px solid var(--line); border-radius:7px; background:#fff; color:var(--ink);
 }
@@ -128,7 +128,30 @@ label.chk input{width:16px;height:16px; accent-color:var(--purple)}
 .empty{text-align:center; padding:34px 18px; color:var(--ink-3); font-size:14px; border:1px dashed var(--line); border-radius:var(--r)}
 .empty strong{display:block; color:var(--ink); font-size:15px; margin-bottom:5px}
 
-table.data{width:100%; border-collapse:collapse; font-size:13px}
+/* ---------- contact cards ---------- */
+.ccard{border:1px solid var(--line); border-radius:var(--r); margin-bottom:9px; background:#fff; overflow:hidden}
+.ccard > summary{
+  cursor:pointer; padding:11px 14px; list-style:none; display:flex; gap:12px; align-items:baseline; flex-wrap:wrap;
+}
+.ccard > summary::-webkit-details-marker{display:none}
+.ccard > summary:hover{background:#faf8fd}
+.ccard .org{font-weight:650; font-size:14.5px; flex:none; max-width:100%}
+.ccard .who{font-size:13px; color:var(--ink-2)}
+.ccard .tel{font-size:13px; color:var(--ink-3); font-variant-numeric:tabular-nums}
+.ccard .caret{margin-left:auto; font-size:12px; font-weight:600; color:var(--purple-mid); flex:none}
+.ccard > summary::after{content:"Edit"; margin-left:auto; font-size:12px; font-weight:600; color:var(--purple-mid); flex:none}
+.ccard[open] > summary::after{content:"Close"}
+.ccard[open] > summary{border-bottom:1px solid var(--line-2); background:var(--purple-lt)}
+.ccard .cbody{padding:14px 14px 4px}
+.cgrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:0 14px}
+@media(max-width:620px){.cgrid{grid-template-columns:1fr}}
+.cgroup{font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--purple);
+  margin:4px 0 8px; padding-top:8px; border-top:1px solid var(--line-2)}
+.cgroup:first-child{border-top:0; padding-top:0}
+.ccard .cfoot{display:flex; padding:2px 14px 12px}
+.ccard .cfoot .btn{margin-left:auto}
+
+table.data{width:100%; border-collapse:collapse; font-size:13px; min-width:820px}
 table.data th{
   text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.05em;
   color:var(--ink-3); border-bottom:2px solid var(--line); padding:7px 8px; white-space:nowrap; background:var(--card);
@@ -212,6 +235,24 @@ table.data tr:hover td{background:#faf8fd}
 .drawer .dft{padding:12px 18px; border-top:1px solid var(--line); background:#fbfafd}
 .closex{font:inherit; font-size:20px; line-height:1; background:none; border:0; cursor:pointer; color:var(--ink-3); padding:2px 6px; border-radius:6px}
 .closex:hover{background:var(--grey-bg); color:var(--ink)}
+
+/* ---------- centred modal ---------- */
+.modal-bg{position:fixed; inset:0; background:rgba(28,26,32,.45); z-index:50; display:grid; place-items:center; padding:20px}
+.modal{
+  background:var(--card); border-radius:12px; width:min(660px,100%); max-height:88vh;
+  display:flex; flex-direction:column; box-shadow:0 12px 44px rgba(28,26,32,.28);
+}
+.modal .mhd{padding:15px 18px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:flex-start}
+.modal .mhd h3{font-size:16.5px; flex:1}
+.modal .mbody{padding:16px 18px; overflow-y:auto; flex:1}
+.modal .mft{padding:12px 18px; border-top:1px solid var(--line); background:#fbfafd; display:flex; gap:9px; flex-wrap:wrap; align-items:center}
+.mailbox{
+  width:100%; min-height:300px; font-size:13.5px; line-height:1.6; white-space:pre-wrap;
+  padding:12px 13px; border:1px solid var(--line); border-radius:8px; background:#fdfcff; color:var(--ink); resize:vertical;
+}
+.mailto-row{display:flex; gap:9px; align-items:center; margin-bottom:11px; flex-wrap:wrap}
+.mailto-row label{font-size:12px; font-weight:600; color:var(--ink-2); flex:none}
+.mailto-row input{flex:1; min-width:170px}
 
 /* ---------- import ---------- */
 .drop{
@@ -1658,63 +1699,140 @@ function openDrawer(id, cm, presetDate) {
 function renderRef(p) {
   var m = msgNode(); if (m) p.appendChild(m);
   p.appendChild(helpBox("What to do on this tab", [
-    "<p>This is the reference material from your <i>Interpreter Requests</i> workbook — the on-site contact table and the standing notes. It is here so you do not have to leave the program to look up a phone number while you are working a request.</p>",
-    "<p>Edits here are saved with everything else and are written back out when you export the tracker.</p>"
+    "<p>This is the reference material from your <i>Interpreter Requests</i> workbook — the on-site contact list and the standing notes. It is here so you do not have to leave the program to look up a phone number while you are working a request.</p>",
+    "<p>Each contact is one card. The line you see is the club, the main contact and their number — enough to make the call. Click <b>Edit</b> to open the card and change anything or fill in the rest.</p>",
+    "<p>Whatever is here gets written back out when you export the tracker, and the event form uses it to fill in the on-site contact for you.</p>"
   ].join("")));
 
-  /* contacts */
+  /* ---- contacts ---- */
   var c1 = el("div", { class: "card" });
   c1.appendChild(el("h2", { text: "On-site contacts" }));
   c1.appendChild(el("div", { class: "lede", text: "Advisor, club president and backup for each recurring event." }));
-  if (!S.contacts.length) {
-    c1.appendChild(el("div", { class: "empty" }, [
-      el("strong", { text: "No contacts yet" }),
-      el("div", { text: "Load your Interpreter Requests workbook on the Import tab to bring in the On-Site Contact Info sheet, or add one below." })
-    ]));
-  } else {
-    var sc = el("div", { class: "scroll-x" });
-    var t = el("table", { class: "data" });
-    var hr = el("tr");
-    ["Event / club", "Advisor", "Phone", "Email", "President", "President email", "Backup", "Backup phone", "Notes", ""].forEach(function (h) { hr.appendChild(el("th", { text: h, scope: "col" })); });
-    t.appendChild(el("thead", null, hr));
-    var tb = el("tbody");
-    S.contacts.forEach(function (c, i) {
-      var tr = el("tr");
-      ["org", "advisor", "advisorPhone", "advisorEmail", "president", "presidentEmail", "backup", "backupPhone", "notes"].forEach(function (k) {
-        var td = el("td");
-        var inp = el("input", { type: "text", value: c[k] || "", style: "border-color:transparent;background:transparent;padding:3px 4px" });
-        inp.addEventListener("change", function () { c[k] = inp.value; save(); });
-        td.appendChild(inp);
-        tr.appendChild(td);
-      });
-      tr.appendChild(el("td", null, el("button", {
-        class: "btn sm danger", text: "×", "aria-label": "Remove " + c.org,
-        onclick: function () { S.contacts.splice(i, 1); save(); render(); }
-      })));
-      tb.appendChild(tr);
-    });
-    t.appendChild(tb); sc.appendChild(t); c1.appendChild(sc);
+
+  var listWrap = el("div");
+  var filterVal = UI.contactFilter || "";
+  if (S.contacts.length > 6) {
+    var f = el("input", { type: "text", placeholder: "Filter by club, name, phone or email…", value: filterVal, style: "margin-bottom:12px" });
+    f.addEventListener("input", function () { UI.contactFilter = f.value; drawContacts(); });
+    c1.appendChild(f);
   }
+  c1.appendChild(listWrap);
+
   c1.appendChild(el("div", { class: "btnrow", style: "margin-top:12px" }, [
-    el("button", { class: "btn sm", text: "Add contact row", onclick: function () {
-      S.contacts.push({ org: "", advisor: "", advisorPhone: "", advisorEmail: "", president: "", presidentEmail: "", backup: "", backupPhone: "", backupEmail: "", notes: "" });
-      save(); render();
-    } })
+    el("button", {
+      class: "btn", text: "Add a contact", onclick: function () {
+        S.contacts.push({ org: "", advisor: "", advisorPhone: "", advisorEmail: "", president: "", presidentEmail: "", backup: "", backupPhone: "", backupEmail: "", notes: "", __open: true });
+        save(); render();
+      }
+    })
   ]));
   p.appendChild(c1);
+  drawContacts();
 
-  /* notes */
+  function drawContacts() {
+    listWrap.innerHTML = "";
+    if (!S.contacts.length) {
+      listWrap.appendChild(el("div", { class: "empty" }, [
+        el("strong", { text: "No contacts yet" }),
+        el("div", { text: "Load your Interpreter Requests workbook on the Import tab to bring in the On-Site Contact Info sheet, or add one below." })
+      ]));
+      return;
+    }
+    var q = clean(UI.contactFilter).toLowerCase();
+    var shown = 0;
+    S.contacts.forEach(function (c, i) {
+      if (q) {
+        var hay = [c.org, c.advisor, c.advisorPhone, c.advisorEmail, c.president, c.presidentEmail, c.backup, c.backupPhone, c.backupEmail, c.notes].join(" ").toLowerCase();
+        if (hay.indexOf(q) < 0) return;
+      }
+      shown++;
+      listWrap.appendChild(contactCard(c, i));
+    });
+    if (q && !shown) {
+      listWrap.appendChild(el("div", { class: "empty" }, el("div", { text: "No contact matches “" + UI.contactFilter + "”." })));
+    }
+  }
+
+  function contactCard(c, i) {
+    var card = el("details", { class: "ccard" });
+    if (c.__open) card.setAttribute("open", "");
+    card.addEventListener("toggle", function () { c.__open = card.open; });
+
+    var sum = el("summary");
+    sum.appendChild(el("span", { class: "org", text: clean(c.org) || "(unnamed)" }));
+    if (clean(c.advisor)) sum.appendChild(el("span", { class: "who", text: c.advisor }));
+    if (clean(c.advisorPhone)) sum.appendChild(el("span", { class: "tel", text: c.advisorPhone }));
+    card.appendChild(sum);
+
+    var body = el("div", { class: "cbody" });
+    function field(label, key, type) {
+      var input = el("input", { type: type || "text" });
+      input.value = c[key] || "";
+      input.addEventListener("change", function () {
+        c[key] = input.value; save();
+        if (key === "org" || key === "advisor" || key === "advisorPhone") {
+          sum.innerHTML = "";
+          sum.appendChild(el("span", { class: "org", text: clean(c.org) || "(unnamed)" }));
+          if (clean(c.advisor)) sum.appendChild(el("span", { class: "who", text: c.advisor }));
+          if (clean(c.advisorPhone)) sum.appendChild(el("span", { class: "tel", text: c.advisorPhone }));
+        }
+      });
+      return el("label", { class: "fld" }, [el("span", { text: label }), input]);
+    }
+    body.appendChild(el("div", { class: "cgroup", text: "Event / club" }));
+    body.appendChild(field("Name of the event or club", "org"));
+
+    body.appendChild(el("div", { class: "cgroup", text: "Advisor / main contact" }));
+    var g1 = el("div", { class: "cgrid" });
+    g1.appendChild(field("Name", "advisor"));
+    g1.appendChild(field("Phone", "advisorPhone", "tel"));
+    g1.appendChild(field("Email", "advisorEmail", "email"));
+    body.appendChild(g1);
+
+    body.appendChild(el("div", { class: "cgroup", text: "Club president" }));
+    var g2 = el("div", { class: "cgrid" });
+    g2.appendChild(field("Name", "president"));
+    g2.appendChild(field("Email", "presidentEmail", "email"));
+    body.appendChild(g2);
+
+    body.appendChild(el("div", { class: "cgroup", text: "Backup contact" }));
+    var g3 = el("div", { class: "cgrid" });
+    g3.appendChild(field("Name", "backup"));
+    g3.appendChild(field("Phone", "backupPhone", "tel"));
+    g3.appendChild(field("Email", "backupEmail", "email"));
+    body.appendChild(g3);
+
+    body.appendChild(el("div", { class: "cgroup", text: "Notes" }));
+    var ta = el("textarea", { style: "min-height:54px" });
+    ta.value = c.notes || "";
+    ta.addEventListener("change", function () { c.notes = ta.value; save(); });
+    body.appendChild(el("label", { class: "fld" }, [el("span", { text: "Anything worth remembering — best times to reach them, room quirks" }), ta]));
+
+    card.appendChild(body);
+    card.appendChild(el("div", { class: "cfoot" }, [
+      el("button", {
+        class: "btn sm danger", text: "Remove this contact",
+        onclick: function () {
+          if (!confirm("Remove " + (clean(c.org) || "this contact") + " from the list?")) return;
+          S.contacts.splice(i, 1); save(); render();
+        }
+      })
+    ]));
+    return card;
+  }
+
+  /* ---- notes ---- */
   var c2 = el("div", { class: "card" });
   c2.appendChild(el("h2", { text: "Standing notes & important information" }));
   c2.appendChild(el("div", { class: "lede", text: "One line each. These carry over year to year — CSDHH contacts, parking hang tags, Blackboard access, shuttle." }));
-  var ta = el("textarea", { style: "min-height:280px; font-size:13px; line-height:1.6" });
-  ta.value = S.notes.join("\n");
-  ta.addEventListener("change", function () {
-    S.notes = ta.value.split("\n").map(function (x) { return x.replace(/\s+$/, ""); });
+  var ta2 = el("textarea", { style: "min-height:300px; font-size:13px; line-height:1.65" });
+  ta2.value = S.notes.join("\n");
+  ta2.addEventListener("change", function () {
+    S.notes = ta2.value.split("\n").map(function (x) { return x.replace(/\s+$/, ""); });
     while (S.notes.length && !S.notes[S.notes.length - 1]) S.notes.pop();
     save();
   });
-  c2.appendChild(ta);
+  c2.appendChild(ta2);
   p.appendChild(c2);
 }
 
@@ -1731,7 +1849,7 @@ function renderShare(p) {
     "<ol>",
     "<li>Click <b>Export new events for Outlook</b>. It saves a calendar file containing only what CSDHH has not been sent yet, so importing it can never create duplicates.</li>",
     "<li>Drag that file onto your <i>ASL Interpreting</i> calendar in Outlook. The events appear on their end automatically.</li>",
-    "<li>Click <b>Copy update email</b> and paste it into a message to them, so somebody actually notices.</li>",
+    "<li>Click <b>Write the update email</b>. It shows you the message, listing exactly what is new. Read it, change anything you want, then copy it or open it straight in Outlook.</li>",
     "</ol>",
     "<p>Recurring meetings go across as a single repeating entry rather than thirty separate ones.</p>",
     "<p><b>One caution.</b> This calendar shows when and where interpreting is scheduled, which is accommodation information. Keep it inside HPU systems — the shared Outlook calendar, OneDrive shared with named people, or an email straight to CSDHH. Do not post it to a public web address where anyone could find it.</p>"
@@ -1760,9 +1878,9 @@ function renderShare(p) {
 
   c1.appendChild(el("div", { class: "btnrow", style: "margin-top:14px" }, [
     el("button", { class: "btn pri", text: "Export new events for Outlook", onclick: function () { exportICS(true); } }),
-    el("button", { class: "btn", text: "Copy update email", onclick: copyUpdateEmail })
+    el("button", { class: "btn", text: "Write the update email", onclick: openEmailPreview })
   ]));
-  c1.appendChild(el("div", { class: "note", html: "Drag the downloaded <code>.ics</code> file onto your shared <b>ASL Interpreting</b> calendar in Outlook. Both buttons work off the same list above." }));
+  c1.appendChild(el("div", { class: "note", html: "Drag the downloaded <code>.ics</code> file onto your shared <b>ASL Interpreting</b> calendar in Outlook. Both buttons work off the same list above — the email shows you its wording before anything is sent." }));
 
   var adv = el("details", { class: "help", style: "margin-top:14px" });
   adv.appendChild(el("summary", { text: "Starting over, or setting up for the first time" }));
@@ -2190,25 +2308,128 @@ function updateEmailText() {
   lines.push("These are also on the shared ASL Interpreting calendar.");
   lines.push("");
   lines.push("Thank you,");
-  lines.push("Joel Peddle, Ed.D.");
-  lines.push("Assistant Director for Assistive Technology and OARS Testing Center");
+  lines.push("");
   lines.push("Office of Accessibility Resources and Services");
-  lines.push("High Point University");
+  lines.push("One University Parkway, High Point, NC 27268");
+  lines.push("Office: 336-841-9026");
   return lines.join("\n");
 }
-function copyUpdateEmail() {
-  var txt = updateEmailText();
-  function done() { msg("ok", "Update email copied. Paste it into a new message to CSDHH."); render(); }
-  function fallback() {
-    var ta = el("textarea", { style: "position:fixed;top:-1000px" });
-    ta.value = txt; document.body.appendChild(ta); ta.select();
-    try { document.execCommand("copy"); done(); }
-    catch (e) { msg("warn", "Could not reach the clipboard. Here is the text to copy by hand:<br><br><pre style='white-space:pre-wrap;font-size:12px'>" + esc(txt) + "</pre>"); render(); }
-    ta.remove();
+/* the agency's address, if it is written down in the standing notes */
+function agencyEmail() {
+  var found = "";
+  S.notes.forEach(function (n) {
+    var m = String(n).match(/[\w.+-]+@[\w-]+\.[\w.]+/g);
+    if (!m) return;
+    m.forEach(function (a) {
+      if (found) return;
+      if (/highpoint\.edu|hpu\.edu/i.test(a)) return;   /* that is us, not them */
+      found = a;
+    });
+  });
+  return found;
+}
+function emailSubject() {
+  var d = publishDiff(S.meta.yearStart);
+  var n = d.added.length;
+  if (n) return "ASL interpreting schedule — " + n + " new event" + (n === 1 ? "" : "s");
+  if (d.changed.length) return "ASL interpreting schedule — updated details";
+  return "ASL interpreting schedule";
+}
+
+/* Show the message before it goes anywhere, so it can be read and edited. */
+function openEmailPreview() {
+  var d = publishDiff(S.meta.yearStart);
+  var root = $("drawerRoot");
+  root.innerHTML = "";
+
+  var bg = el("div", { class: "modal-bg" });
+  bg.addEventListener("click", function (ev) { if (ev.target === bg) close(); });
+  var mo = el("div", { class: "modal", role: "dialog", "aria-modal": "true", "aria-label": "Update email for CSDHH" });
+
+  mo.appendChild(el("div", { class: "mhd" }, [
+    el("h3", { text: "Update email" }),
+    el("button", { class: "closex", text: "×", "aria-label": "Close", onclick: close })
+  ]));
+
+  var body = el("div", { class: "mbody" });
+  body.appendChild(el("div", {
+    class: "msg " + (d.total ? "info" : "warn"),
+    html: d.total
+      ? "Covers the <b>" + d.total + "</b> event" + (d.total === 1 ? "" : "s") + " CSDHH has not been sent. Read it over, change anything you like, then copy it or open it in Outlook."
+      : "There is nothing new to tell them right now, so this is just a short note. You can still send it, or close this and come back when something changes."
+  }));
+
+  var toRow = el("div", { class: "mailto-row" });
+  var toIn = el("input", { type: "text", value: agencyEmail(), placeholder: "interpreting@csdhh.org" });
+  toRow.appendChild(el("label", { text: "To", for: "mailTo" }));
+  toIn.id = "mailTo";
+  toRow.appendChild(toIn);
+  body.appendChild(toRow);
+
+  var subRow = el("div", { class: "mailto-row" });
+  var subIn = el("input", { type: "text", value: emailSubject() });
+  subRow.appendChild(el("label", { text: "Subject", for: "mailSub" }));
+  subIn.id = "mailSub";
+  subRow.appendChild(subIn);
+  body.appendChild(subRow);
+
+  var ta = el("textarea", { class: "mailbox", "aria-label": "Message" });
+  ta.value = updateEmailText();
+  body.appendChild(ta);
+  var hint = el("div", { class: "note" });
+  body.appendChild(hint);
+  mo.appendChild(body);
+
+  var status = el("span", { style: "font-size:12.5px; color:var(--ok); font-weight:600" });
+  var ft = el("div", { class: "mft" }, [
+    el("button", { class: "btn pri", text: "Copy the message", onclick: doCopy }),
+    el("button", { class: "btn", text: "Open in Outlook", onclick: doMailto }),
+    status,
+    el("span", { style: "flex:1" }),
+    el("button", { class: "btn", text: "Close", onclick: close })
+  ]);
+  mo.appendChild(ft);
+
+  bg.appendChild(mo);
+  root.appendChild(bg);
+  document.addEventListener("keydown", onKey);
+  /* open showing the top of the message, not wherever the caret lands */
+  setTimeout(function () { ta.focus(); ta.setSelectionRange(0, 0); ta.scrollTop = 0; }, 0);
+  checkLength();
+  ta.addEventListener("input", checkLength);
+  subIn.addEventListener("input", checkLength);
+
+  function checkLength() {
+    var n = ta.value.length + subIn.value.length;
+    hint.textContent = n > 1600
+      ? "This message is long. “Open in Outlook” may cut it short — use “Copy the message” and paste it instead."
+      : "“Open in Outlook” starts a new message with this already filled in. “Copy the message” puts just the text on your clipboard.";
   }
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(txt).then(done, fallback);
-  } else fallback();
+  function say(t) { status.textContent = t; setTimeout(function () { status.textContent = ""; }, 2600); }
+  function doCopy() {
+    var txt = ta.value;
+    function fallback() {
+      ta.select();
+      try { document.execCommand("copy"); say("Copied."); }
+      catch (e) { say(""); alert("Could not reach the clipboard — select the text and copy it by hand."); }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(function () { say("Copied."); }, fallback);
+    } else fallback();
+  }
+  function doMailto() {
+    var href = "mailto:" + encodeURIComponent(clean(toIn.value)) +
+      "?subject=" + encodeURIComponent(subIn.value) +
+      "&body=" + encodeURIComponent(ta.value);
+    var a = el("a", { href: href });
+    document.body.appendChild(a); a.click(); a.remove();
+    say("Opening your email…");
+  }
+  function onKey(ev) { if (ev.key === "Escape") close(); }
+  function close() {
+    document.removeEventListener("keydown", onKey);
+    root.innerHTML = "";
+  }
 }
 
 /* ---------------- tracker export ---------------- */
@@ -2316,7 +2537,8 @@ window.__ASL = {
   exportTracker: exportTracker, stage: stage, commitPending: commitPending, UI: UI, render: render,
   buildICS: buildICS, exportICS: exportICS, seriesRule: seriesRule,
   suggest: suggest, lastLike: lastLike, splitPeople: splitPeople, openDrawer: openDrawer,
-  updateEmailText: updateEmailText, publishDiff: publishDiff, markShared: markShared
+  updateEmailText: updateEmailText, publishDiff: publishDiff, markShared: markShared,
+  openEmailPreview: openEmailPreview, emailSubject: emailSubject, agencyEmail: agencyEmail
 };
 
 })();
