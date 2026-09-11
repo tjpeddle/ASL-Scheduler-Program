@@ -454,6 +454,7 @@ var S = {
   meta: {
     yearStart: 2026, trackerA1: "Date",
     sharedAt: null, sharedSnap: {},            /* what CSDHH has already been told about */
+    ccEmail: "", inviteNotes: false,           /* who is copied on the invite, and whether notes ride along */
     publishedAt: null, publishedSnap: {},      /* legacy, migrated on load */
     includeNotesPublic: false, includeStatusPublic: true
   }
@@ -882,11 +883,11 @@ function nextStep() {
   var upcoming = evs.filter(function (e) { return e.date >= today; });
   var notMade = upcoming.filter(function (e) { return e.status === "Request not made"; });
   if (notMade.length) {
-    return { text: "<b>" + notMade.length + "</b> upcoming event" + (notMade.length === 1 ? " has" : "s have") + " no request submitted to CSDHH yet. Earliest: " + esc(longDate(notMade[0].date)) + " — " + esc(notMade[0].title) + ".", btn: "Review these", go: "events", filter: "Request not made" };
+    return { text: "<b>" + notMade.length + "</b> upcoming event" + (notMade.length === 1 ? " has" : "s have") + " no invite sent to CSDHH yet. Earliest: " + esc(longDate(notMade[0].date)) + " — " + esc(notMade[0].title) + ".", btn: "Review these", go: "events", filter: "Request not made" };
   }
   var noInterp = upcoming.filter(function (e) { return e.status === "Request Complete" && !clean(e.interpreters); });
   if (noInterp.length) {
-    return { text: "<b>" + noInterp.length + "</b> completed request" + (noInterp.length === 1 ? "" : "s") + " still " + (noInterp.length === 1 ? "has" : "have") + " no interpreter named. Fill those in so the shared calendar shows who is coming.", btn: "Review these", go: "events", filter: "Request Complete" };
+    return { text: "<b>" + noInterp.length + "</b> completed request" + (noInterp.length === 1 ? "" : "s") + " still " + (noInterp.length === 1 ? "has" : "have") + " no interpreter named. Fill those in so the invite says who is coming.", btn: "Review these", go: "events", filter: "Request Complete" };
   }
   var clash = [];
   upcoming.forEach(function (e) { if (clashesFor(e).length) clash.push(e); });
@@ -895,7 +896,7 @@ function nextStep() {
   }
   var d = publishDiff(ys);
   if (d.total) {
-    return { text: "<b>" + d.total + "</b> event" + (d.total === 1 ? "" : "s") + " on your calendar that CSDHH has not been sent yet" + (S.meta.sharedAt ? " (last sent " + esc(S.meta.sharedAt) + ")" : "") + ".", btn: "Send to CSDHH", go: "share" };
+    return { text: "<b>" + d.total + "</b> event" + (d.total === 1 ? "" : "s") + " not yet on an invite to CSDHH" + (S.meta.sharedAt ? " (last sent " + esc(S.meta.sharedAt) + ")" : "") + ".", btn: "Send the invites", go: "share" };
   }
   var inprog = upcoming.filter(function (e) { return e.status === "In progress"; });
   if (inprog.length) {
@@ -980,14 +981,13 @@ function renderStart(p) {
   /* flow chart */
   var flowCard = el("div", { class: "card" });
   flowCard.appendChild(el("h2", { text: "The workflow" }));
-  flowCard.appendChild(el("div", { class: "lede", text: "Left to right. You will not do all of these every time — steps 3 to 6 are the weekly loop." }));
+  flowCard.appendChild(el("div", { class: "lede", text: "Left to right. You will not do all of these every time — steps 3 to 5 are the weekly loop." }));
   var steps = [
     { n: "Step 1", t: "Form comes in", d: "Someone submits the ASL Interpreter Request Form. Download the Forms export as .xlsx.", done: evs.length > 0 },
     { n: "Step 2", t: "Import", d: "Drop the export into the Import tab. Duplicates are skipped, recurring events are expanded.", done: evs.length > 0 },
-    { n: "Step 3", t: "Request to CSDHH", d: "Email interpreting@csdhh.org. Mark the event In progress, then Request Complete.", done: byStatus["Request not made"] === 0 && upcoming.length > 0 },
-    { n: "Step 4", t: "Fill in details", d: "Interpreter assigned, campus access / hang tag, notify student, case noted.", done: upcoming.length > 0 && byStatus["Request Complete"] > 0 },
-    { n: "Step 5", t: "Send to CSDHH", d: "Export the new events into your shared Outlook calendar, and email them what changed.", done: diff.total === 0 && !!S.meta.sharedAt },
-    { n: "Step 6", t: "Update your tracker", d: "Write everything back into the Interpreter Requests workbook for your records.", done: false }
+    { n: "Step 3", t: "Send the invite", d: "Export the new events, put them in Outlook, and send the calendar invite with CSDHH copied in. The invite is the request — there is no separate email.", done: diff.total === 0 && !!S.meta.sharedAt },
+    { n: "Step 4", t: "Details go on the invite", d: "Room, on-site contact, interpreter assigned, campus access. Everything CSDHH needs belongs in the invite itself, so nothing is left in a separate message. Update the invite and it reaches them.", done: upcoming.length > 0 && byStatus["Request not made"] === 0 },
+    { n: "Step 5", t: "Update your tracker", d: "Write everything back into the Interpreter Requests workbook for your records.", done: false }
   ];
   var firstUndone = steps.findIndex(function (s) { return !s.done; });
   /* a later step never reads as finished while an earlier one is still open */
@@ -1011,10 +1011,10 @@ function renderStart(p) {
   var stats = el("div", { class: "stats" });
   function stat(v, k, cls) { stats.appendChild(el("div", { class: "stat " + (cls || "") }, [el("div", { class: "v", text: String(v) }), el("div", { class: "k", text: k })])); }
   stat(upcoming.length, "Upcoming events");
-  stat(byStatus["Request not made"] || 0, "No request yet", (byStatus["Request not made"] ? "alert" : ""));
+  stat(byStatus["Request not made"] || 0, "No invite yet", (byStatus["Request not made"] ? "alert" : ""));
   stat(byStatus["In progress"] || 0, "In progress", (byStatus["In progress"] ? "warn" : ""));
   stat(byStatus["Request Complete"] || 0, "Confirmed", "good");
-  stat(diff.total, "Unpublished changes", (diff.total ? "warn" : ""));
+  stat(diff.total, "Not sent to CSDHH", (diff.total ? "warn" : ""));
   statCard.appendChild(stats);
   p.appendChild(statCard);
 
@@ -1035,15 +1035,15 @@ function renderStart(p) {
     list.appendChild(li);
   }
   item(evs.length > 0, evs.length ? "<b>" + evs.length + "</b> events loaded for " + ys + "–" + (ys + 1) : "No events loaded yet", "Import", function () { go("import"); });
-  item(!byStatus["Request not made"], byStatus["Request not made"] ? "<b>" + byStatus["Request not made"] + "</b> upcoming event(s) still need a request sent to CSDHH" : "Every upcoming event has a request submitted", "Open list", function () { UI.evFilter = "Request not made"; go("events"); });
+  item(!byStatus["Request not made"], byStatus["Request not made"] ? "<b>" + byStatus["Request not made"] + "</b> upcoming event(s) still need an invite sent to CSDHH" : "Every upcoming event has an invite out", "Open list", function () { UI.evFilter = "Request not made"; go("events"); });
   var missing = upcoming.filter(function (e) { return e.status === "Request Complete" && !clean(e.interpreters); }).length;
-  item(!missing, missing ? "<b>" + missing + "</b> confirmed event(s) have no interpreter named" : "All confirmed events name an interpreter", "Open list", function () { UI.evFilter = "Request Complete"; go("events"); });
+  item(!missing, missing ? "<b>" + missing + "</b> confirmed event(s) have no interpreter named on the invite" : "Every confirmed invite names an interpreter", "Open list", function () { UI.evFilter = "Request Complete"; go("events"); });
   var noAccess = upcoming.filter(function (e) { return e.status === "Request Complete" && !e.campus; }).length;
   item(!noAccess, noAccess ? "<b>" + noAccess + "</b> confirmed event(s) have no campus access / hang tag confirmed" : "Campus access is set on all confirmed events", "Open list", function () { UI.evFilter = "Request Complete"; go("events"); });
   item(diff.total === 0 && !!S.meta.sharedAt,
     S.meta.sharedAt
-      ? (diff.total ? "<b>" + diff.total + "</b> event(s) not yet sent to CSDHH (last sent " + esc(S.meta.sharedAt) + ")" : "CSDHH has everything as of " + esc(S.meta.sharedAt))
-      : "You have not sent anything to CSDHH from here yet",
+      ? (diff.total ? "<b>" + diff.total + "</b> event(s) not yet on an invite to CSDHH (last sent " + esc(S.meta.sharedAt) + ")" : "CSDHH is on the invite for everything as of " + esc(S.meta.sharedAt))
+      : "You have not sent any invites to CSDHH from here yet",
     "Send", function () { go("share"); });
   ck.appendChild(list);
   p.appendChild(ck);
@@ -1996,21 +1996,21 @@ function renderShare(p) {
   var diff = publishDiff(ys);
 
   p.appendChild(helpBox("What to do on this tab", [
-    "<p><b>How CSDHH sees the schedule.</b> Set this up once, then it is two clicks a week.</p>",
-    "<p><b>One-time setup:</b> in Outlook, make a calendar called <i>ASL Interpreting</i> and share it with the CSDHH email addresses. That is the calendar they will watch.</p>",
+    "<p><b>Everything goes through the calendar invite.</b> CSDHH is copied on the invite, so the invite is the request, the confirmation and the update all at once. There is no separate email to send.</p>",
     "<p><b>Each time new requests come in:</b></p>",
     "<ol>",
-    "<li>Click <b>Export new events for Outlook</b>. It saves a calendar file containing only what CSDHH has not been sent yet, so importing it can never create duplicates.</li>",
-    "<li>Drag that file onto your <i>ASL Interpreting</i> calendar in Outlook. The events appear on their end automatically.</li>",
-    "<li>Click <b>Write the update email</b>. It shows you the message, listing exactly what is new. Read it, change anything you want, then copy it or open it straight in Outlook.</li>",
+    "<li>Click <b>Export new events for Outlook</b>. It saves a calendar file holding only what CSDHH has not been sent yet, so importing it can never create duplicates.</li>",
+    "<li>Open that file in Outlook and put the events on your <i>ASL Interpreting</i> calendar.</li>",
+    "<li>Open each one, check <b>CSDHH is on the invite</b>, and <b>Send</b>. Outlook handles the rest — when you change the invite later, they get the update automatically.</li>",
     "</ol>",
-    "<p>Recurring meetings go across as a single repeating entry rather than thirty separate ones.</p>",
-    "<p><b>One caution.</b> This calendar shows when and where interpreting is scheduled, which is accommodation information. Keep it inside HPU systems — the shared Outlook calendar, OneDrive shared with named people, or an email straight to CSDHH. Do not post it to a public web address where anyone could find it.</p>"
+    "<p><b>Put the details in the invite, not anywhere else.</b> Room, on-site contact, interpreter assigned — the export already writes those into the invite body for you, so what CSDHH receives is complete. If something changes, change the invite and send the update; that is the whole notification.</p>",
+    "<p>Recurring meetings go across as a single repeating entry rather than thirty separate ones, so one update covers the whole series.</p>",
+    "<p><b>One caution.</b> This schedule shows when and where interpreting is arranged, which is accommodation information. Keep it inside HPU systems — the Outlook invite, or OneDrive shared with named people. Do not post it to a public web address where anyone could find it.</p>"
   ].join(""), !S.meta.sharedAt));
 
   /* 1 — Outlook hand-off */
   var c1 = el("div", { class: "card" });
-  c1.appendChild(el("h2", { text: "1. Send new events to CSDHH" }));
+  c1.appendChild(el("h2", { text: "1. Send the calendar invites" }));
   c1.appendChild(el("div", { class: "lede", text: S.meta.sharedAt ? "Last sent " + S.meta.sharedAt : "Nothing sent from here yet." }));
 
   if (diff.total) {
@@ -2029,13 +2029,37 @@ function renderShare(p) {
     c1.appendChild(el("div", { class: "msg ok", text: S.meta.sharedAt ? "Nothing new. CSDHH has every event currently on your calendar." : "No events yet — import some on the Import tab first." }));
   }
 
-  c1.appendChild(el("div", { class: "btnrow", style: "margin-top:14px" }, [
-    el("button", { class: "btn pri", text: "Export new events for Outlook", onclick: function () { exportICS(true); } }),
-    el("button", { class: "btn", text: "Write the update email", onclick: openEmailPreview })
-  ]));
-  c1.appendChild(el("div", { class: "note", html: "Drag the downloaded <code>.ics</code> file onto your shared <b>ASL Interpreting</b> calendar in Outlook. Both buttons work off the same list above — the email shows you its wording before anything is sent." }));
+  /* who gets copied on every invite */
+  if (!clean(S.meta.ccEmail)) S.meta.ccEmail = agencyEmail();
+  var ccRow = el("div", { class: "mailto-row", style: "margin:14px 0 4px" });
+  var ccIn = el("input", { type: "text", value: S.meta.ccEmail || "", placeholder: "interpreting@csdhh.org" });
+  ccIn.addEventListener("change", function () { S.meta.ccEmail = ccIn.value; save(); });
+  ccRow.appendChild(el("label", { text: "Copy CSDHH on the invite", for: "ccEmail" }));
+  ccIn.id = "ccEmail";
+  ccRow.appendChild(ccIn);
+  c1.appendChild(ccRow);
 
-  var adv = el("details", { class: "help", style: "margin-top:14px" });
+  var inv = el("input", { type: "checkbox" });
+  inv.checked = !!S.meta.inviteNotes;
+  inv.addEventListener("change", function () { S.meta.inviteNotes = inv.checked; save(); });
+  c1.appendChild(el("label", { class: "chk" }, [inv, document.createTextNode("Also put my notes in the invite body (leave off if your notes are internal)")]));
+
+  c1.appendChild(el("div", { class: "btnrow", style: "margin-top:12px" }, [
+    el("button", { class: "btn pri", text: "Export new events for Outlook", onclick: function () { exportICS(true); } })
+  ]));
+  c1.appendChild(el("div", { class: "note", html: "Open the downloaded <code>.ics</code> in Outlook and add the events to your <b>ASL Interpreting</b> calendar. The room, on-site contact and interpreter are already written into the invite body. <b>Check CSDHH is on the invite before you send</b> — Outlook drops the attendee line from an imported file more often than not, so add them if they are missing." }));
+
+  var mailAdv = el("details", { class: "help", style: "margin-top:14px" });
+  mailAdv.appendChild(el("summary", { text: "If you ever need to email them separately" }));
+  var mailBody = el("div", { class: "body" });
+  mailBody.appendChild(el("p", { html: "Normally you will not need this — the invite carries everything. It is here for the odd case where you want a written summary of what changed, outside the calendar." }));
+  mailBody.appendChild(el("div", { class: "btnrow" }, [
+    el("button", { class: "btn sm", text: "Write an update email", onclick: openEmailPreview })
+  ]));
+  mailAdv.appendChild(mailBody);
+  c1.appendChild(mailAdv);
+
+  var adv = el("details", { class: "help", style: "margin-top:10px" });
   adv.appendChild(el("summary", { text: "Starting over, or setting up for the first time" }));
   var advb = el("div", { class: "body" });
   advb.appendChild(el("p", { html: "Use this the very first time, or if you had to rebuild the Outlook calendar from scratch. It exports <b>every</b> event for " + ys + "–" + (ys + 1) + ". Only do it into an empty calendar, or you will get duplicates." }));
@@ -2389,11 +2413,19 @@ function buildICS(events) {
     out.push("SUMMARY:" + icsEsc("ASL Interpreting: " + e.title));
     if (e.location) out.push("LOCATION:" + icsEsc(e.location));
     var desc = [];
+    if (e.location) desc.push("Location: " + e.location);
     if (e.onsite) desc.push("On-site contact: " + e.onsite);
-    if (e.interpreters) desc.push("Interpreter(s): " + e.interpreters);
+    if (e.interpreters) desc.push("Interpreter(s) assigned: " + e.interpreters);
+    if (e.type) desc.push("Event type: " + e.type);
     if (count) desc.push("Recurring: " + count + " occurrences");
-    desc.push("Requested through HPU Office of Accessibility Resources & Services.");
+    if (S.meta.inviteNotes && clean(e.notes)) desc.push("Notes: " + clean(e.notes));
+    desc.push("");
+    desc.push("ASL interpreting requested through the HPU Office of Accessibility Resources & Services.");
+    desc.push("Office: 336-841-9026");
     out.push("DESCRIPTION:" + icsEsc(desc.join("\n")));
+    if (clean(S.meta.ccEmail)) {
+      out.push("ATTENDEE;ROLE=OPT-PARTICIPANT;RSVP=FALSE:mailto:" + clean(S.meta.ccEmail));
+    }
     out.push("END:VEVENT");
     return out;
   }
@@ -2423,7 +2455,7 @@ function exportICS(onlyNew) {
     (onlyNew ? "New interpreter events " : "Interpreter calendar ") + todayISO() + ".ics");
   var changedCount = onlyNew ? diff.changed.length : 0;
   markShared(ys);
-  msg("ok", "Saved <b>" + list.length + "</b> event" + (list.length === 1 ? "" : "s") + " to your Downloads as a calendar file. Drag it onto your shared <b>ASL Interpreting</b> calendar in Outlook." +
+  msg("ok", "Saved <b>" + list.length + "</b> event" + (list.length === 1 ? "" : "s") + " to your Downloads as a calendar file. Add them to your <b>ASL Interpreting</b> calendar in Outlook, then check CSDHH is on each invite and send." +
     (changedCount ? " <b>Note:</b> " + changedCount + " of these changed rather than being brand new — Outlook will add a second copy, so delete the old one on those." : ""));
   render();
 }
